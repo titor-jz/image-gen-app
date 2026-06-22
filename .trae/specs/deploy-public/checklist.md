@@ -1,0 +1,10 @@
+- [x] 图片生成后以 base64 存入 IndexedDB，页面通过 blob URL 正常显示
+- [x] 图片下载从 IndexedDB 读取 base64，转为 Blob 触发浏览器下载，下载的文件可正常打开
+- [x] 历史记录恢复时，图片从 IndexedDB 正确加载显示
+- [x] `npm run build` 编译通过无错误
+- [x] `vercel.json` 配置正确，API 路由可正常访问
+- [x] `.env.example` 包含所有必要的环境变量说明
+- [x] 用户自带 API Key 模式保持不变，Key 存储在 localStorage
+- [x] 代理地址配置保留（用户可能仍有需要），但不影响默认使用
+- [x] Electron 相关脚本与 Web 脚本分离，`npm run dev` 和 `npm run build` 只构建 Web
+- [x] 部署后无需服务器访问外网（快AI国内可直连）
