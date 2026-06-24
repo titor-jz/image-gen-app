@@ -80,33 +80,37 @@ export default function Home() {
     setResults([]);
 
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-      };
-      if (baseURL) headers["x-base-url"] = baseURL;
-      if (proxyURL) headers["x-proxy-url"] = proxyURL;
-
-      // Collect all referenced images (those mentioned in prompt with @)
-      const referencedBase64s: string[] = [];
+      // Collect referenced images (those mentioned in prompt with @)
+      const referencedImages: ReferenceImage[] = [];
       for (const img of referenceImages) {
         const tag = `@${img.name}`;
         if (prompt.includes(tag)) {
-          referencedBase64s.push(img.base64);
+          referencedImages.push(img);
         }
+      }
+
+      // Use FormData to avoid JSON body size limit on Vercel
+      const formData = new FormData();
+      formData.append("prompt", prompt.trim());
+      formData.append("model", selectedModel);
+      formData.append("size", selectedSize);
+      formData.append("quality", selectedQuality);
+      formData.append("n", "1");
+      for (const img of referencedImages) {
+        // Convert base64 data URL to Blob
+        const response = await fetch(img.base64);
+        const blob = await response.blob();
+        formData.append("images", blob, img.name);
       }
 
       const response = await fetch("/api/generate", {
         method: "POST",
-        headers,
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          model: selectedModel,
-          size: selectedSize,
-          quality: selectedQuality,
-          images: referencedBase64s.length > 0 ? referencedBase64s : undefined,
-          n: 1,
-        }),
+        headers: {
+          "x-api-key": apiKey,
+          ...(baseURL ? { "x-base-url": baseURL } : {}),
+          ...(proxyURL ? { "x-proxy-url": proxyURL } : {}),
+        },
+        body: formData,
       });
 
       const data = await response.json();
@@ -137,7 +141,7 @@ export default function Home() {
           model: selectedModel,
           size: selectedSize,
           quality: selectedQuality,
-          images: referencedBase64s.length > 0 ? referencedBase64s : undefined,
+          images: referencedImages.length > 0 ? referencedImages.map(img => img.base64) : undefined,
         },
         results: newResults,
         createdAt: Date.now(),

@@ -22,15 +22,6 @@ const QUALITY_MAP: Record<string, string> = {
   "4k": "high",
 };
 
-function base64ToFile(base64DataUrl: string, index: number): File | null {
-  const match = base64DataUrl.match(/^data:(.+?);base64,(.+)$/);
-  if (!match) return null;
-  const [, mimeType, base64Data] = match;
-  const buf = Buffer.from(base64Data, "base64");
-  const ext = mimeType.split("/")[1] || "png";
-  return new File([buf], `input_${index}.${ext}`, { type: mimeType });
-}
-
 export async function POST(request: NextRequest) {
   try {
     const apiKey =
@@ -48,8 +39,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { prompt, model, size, quality, images, n } = body;
+    const formData = await request.formData();
+    const prompt = formData.get("prompt") as string;
+    const model = (formData.get("model") as string) || "gpt-image-2";
+    const size = (formData.get("size") as string) || "auto";
+    const quality = (formData.get("quality") as string) || "1k";
+    const imageFiles = formData.getAll("images") as (File | Blob)[];
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -58,19 +53,18 @@ export async function POST(request: NextRequest) {
     const url = `${baseURL}/images/generations`;
 
     const form = new FormData();
-    form.append("model", model || "gpt-image-2");
+    form.append("model", model);
     form.append("prompt", prompt);
-    form.append("size", SIZE_MAP[size || "auto"] || "auto");
-    form.append("quality", QUALITY_MAP[quality || "1k"] || "low");
-    form.append("response_format", "b64_json"); // 改为 base64 格式
+    form.append("size", SIZE_MAP[size] || "auto");
+    form.append("quality", QUALITY_MAP[quality] || "low");
+    form.append("response_format", "b64_json");
 
     // 添加多图参考
-    if (images && Array.isArray(images) && images.length > 0) {
-      for (let i = 0; i < images.length; i++) {
-        const file = base64ToFile(images[i], i);
-        if (file) {
-          form.append("image", file);
-        }
+    for (let i = 0; i < imageFiles.length; i++) {
+      const file = imageFiles[i];
+      if (file instanceof Blob) {
+        const ext = (file as File).name?.split(".").pop() || "png";
+        form.append("image", file, `input_${i}.${ext}`);
       }
     }
 
