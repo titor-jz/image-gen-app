@@ -50,6 +50,7 @@ next-env.d.ts
 test-*.js
 test-*.json
 test-output.png
+generate-*.js
 
 # generated images (legacy)
 /public/generated/

@@ -46,7 +46,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const data = JSON.parse(res.body);
+    let data;
+    try {
+      data = JSON.parse(res.body);
+    } catch {
+      return NextResponse.json({
+        models: [{
+          id: "gpt-image-2",
+          name: "GPT-Image2",
+          costPerImage: 0,
+          supportedSizes: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
+        }],
+      });
+    }
     const allModels = data?.data || [];
     const imageModels = allModels.filter((m: { id: string }) => isImageModel(m.id));
 

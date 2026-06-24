@@ -113,7 +113,15 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await response.json();
+      // 安全解析响应：先检查 Content-Type
+      const contentType = response.headers.get("content-type") || "";
+      let data: any;
+      if (contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`服务返回了非预期响应: ${text.slice(0, 200)}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || "生成失败");

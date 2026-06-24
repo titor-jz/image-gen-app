@@ -36,7 +36,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data = JSON.parse(res.body);
+    let data;
+    try {
+      data = JSON.parse(res.body);
+    } catch {
+      return NextResponse.json({ error: `验证失败 (${res.status}): 上游服务返回无效响应` }, { status: 401 });
+    }
     const taskId = data?.data?.task_id || data?.task_id;
     if (!taskId) {
       return NextResponse.json({ error: "验证失败: 未返回 task_id" }, { status: 401 });
