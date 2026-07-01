@@ -72,14 +72,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请输入提示词" }, { status: 400 });
     }
 
-    const url = `${baseURL}/images/generations`;
+    // 使用异步接口，避免 Vercel Serverless 超时
+    const url = `${baseURL}/images/generations/async`;
 
     const form = new FormData();
     form.append("model", model);
     form.append("prompt", prompt);
     form.append("size", SIZE_MAP[size] || "auto");
     form.append("quality", QUALITY_MAP[quality] || "low");
-    form.append("response_format", "b64_json");
+    form.append("response_format", "url"); // 异步接口使用 url 格式，减少响应大小
 
     // 添加多图参考
     for (let i = 0; i < imageFiles.length; i++) {
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       }, proxyUrl || undefined);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";
+      console.error("[generate] 请求上游 API 失败:", msg, err);
       return NextResponse.json(
         { error: `请求上游 API 失败: ${msg}。请检查 API Key 和网络连接。` },
         { status: 502 }
@@ -108,9 +110,10 @@ export async function POST(request: NextRequest) {
       try {
         const errData = JSON.parse(res.body);
         errMsg = errData.error?.message || errData.message || errMsg;
+        console.error("[generate] 上游 API 返回错误:", res.status, errMsg, res.body);
       } catch {
-        // 响应不是 JSON，可能是 HTML 错误页
         errMsg = `上游服务返回错误 (${res.status})`;
+        console.error("[generate] 上游 API 返回非 JSON 错误:", res.status, res.body);
       }
       return NextResponse.json(
         { error: `生成失败 (${res.status}): ${errMsg}` },
@@ -118,65 +121,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 检查响应体大小
-    if (res.body.length > MAX_RESPONSE_SIZE) {
-      return NextResponse.json(
-        {
-          error: `生成图片过大（${Math.round(res.body.length / 1024 / 1024 * 100) / 100}MB），超出平台限制。请尝试降低清晰度（4k→2k→1k）或选择更小的比例。`,
-        },
-        { status: 413 }
-      );
-    }
-
     let data;
     try {
       data = JSON.parse(res.body);
     } catch {
+      console.error("[generate] 解析上游响应失败:", res.body);
       return NextResponse.json(
         { error: "上游服务返回了无效响应，请稍后重试" },
         { status: 502 }
       );
     }
 
-    const resultImages: { b64_json: string; mime: string }[] = [];
-
-    if (data?.data && Array.isArray(data.data)) {
-      for (let i = 0; i < data.data.length; i++) {
-        const item = data.data[i];
-        if (item.b64_json) {
-          resultImages.push({
-            b64_json: item.b64_json,
-            mime: item.mime_type || "image/png",
-          });
-        } else if (item.url) {
-          try {
-            const imgRes = await httpRequest(item.url, {
-              proxyUrl: proxyUrl || undefined,
-            });
-            if (imgRes.status >= 200 && imgRes.status < 300) {
-              const buf = imgRes.bodyBuffer || Buffer.from(imgRes.body, "binary");
-              resultImages.push({
-                b64_json: buf.toString("base64"),
-                mime: "image/png",
-              });
-            }
-          } catch {
-            // 跳过下载失败的图片
-          }
-        }
-      }
-    }
-
-    if (resultImages.length === 0) {
+    // 提取 task_id
+    const taskId = data?.data?.task_id || data?.task_id;
+    if (!taskId) {
+      console.error("[generate] 上游响应中未找到 task_id:", data);
       return NextResponse.json(
-        { error: "生成成功但未返回图片数据" },
+        { error: "生成失败: 未返回任务 ID" },
         { status: 500 }
       );
     }
 
+    // 立即返回 task_id，前端轮询获取结果
     return NextResponse.json({
-      images: resultImages,
-      revised_prompt: data?.data?.[0]?.revised_prompt,
+      task_id: taskId,
+      status: "PENDING",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "未知错误";

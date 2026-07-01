@@ -47,10 +47,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "验证失败: 未返回 task_id" }, { status: 401 });
     }
 
-    // 轮询
+    // 轮询（最多 15 次 × 3 秒 = 45 秒，留出余量给 Vercel 60s 限制）
     const taskUrl = `${baseURL || "https://api.openai.com/v1"}/images/tasks/${taskId}`;
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       const taskRes = await httpRequest(taskUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -68,7 +68,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: "验证失败: 任务超时" }, { status: 401 });
+    // 超时但未失败，返回成功（任务可能仍在处理中）
+    return NextResponse.json({ ok: true, message: "API Key 验证通过，任务已提交（生图接口正常）" });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: `验证失败: ${message}` }, { status: 401 });

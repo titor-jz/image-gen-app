@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Settings, Zap, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import {
+  Settings,
+  Sun,
+  Moon,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,7 +23,11 @@ import { getApiKey, setApiKey, getBaseUrl, setBaseUrl, getProxyUrl, setProxyUrl 
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 
-export function Header() {
+interface HeaderProps {
+  onShowHistory: () => void;
+}
+
+export function Header({ onShowHistory }: HeaderProps) {
   const [apiKey, setApiKeyState] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [baseUrl, setBaseUrlState] = useState("");
@@ -25,6 +37,7 @@ export function Header() {
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
@@ -36,6 +49,7 @@ export function Header() {
     setBaseUrlInput(url);
     setProxyUrlState(proxy);
     setProxyUrlInput(proxy);
+    setIsDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   const handleSave = () => {
@@ -62,17 +76,10 @@ export function Header() {
         "Content-Type": "application/json",
         "x-api-key": key,
       };
-      if (baseUrlInput.trim()) {
-        headers["x-base-url"] = baseUrlInput.trim();
-      }
-      if (proxyUrlInput.trim()) {
-        headers["x-proxy-url"] = proxyUrlInput.trim();
-      }
+      if (baseUrlInput.trim()) headers["x-base-url"] = baseUrlInput.trim();
+      if (proxyUrlInput.trim()) headers["x-proxy-url"] = proxyUrlInput.trim();
 
-      const res = await fetch("/api/test-key", {
-        method: "POST",
-        headers,
-      });
+      const res = await fetch("/api/test-key", { method: "POST", headers });
       const data = await res.json();
 
       if (res.ok) {
@@ -88,125 +95,89 @@ export function Header() {
     }
   };
 
-  return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-border bg-card/80 backdrop-blur-sm">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-          <Zap className="w-5 h-5 text-primary-foreground" />
-        </div>
-        <h1 className="text-lg font-semibold text-foreground">AI Image Gen</h1>
-      </div>
+  const toggleTheme = () => {
+    const html = document.documentElement;
+    if (html.classList.contains("dark")) {
+      html.classList.remove("dark");
+      setIsDark(false);
+    } else {
+      html.classList.add("dark");
+      setIsDark(true);
+    }
+  };
 
-      <div className="flex items-center gap-3">
+  return (
+    <header className="flex items-center justify-between px-6 py-4">
+      {/* 左侧：历史记录按钮 */}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-2"
+        onClick={onShowHistory}
+      >
+        <Clock className="w-4 h-4" />
+        <span className="text-sm">对话列表</span>
+      </Button>
+
+      {/* 右侧：主题 + 设置 */}
+      <div className="flex items-center gap-2">
         {apiKey && (
-          <div className="flex items-center gap-1.5 text-xs text-green-500" title="API Key 已配置">
-            <CheckCircle2 className="w-4 h-4" />
-            <span className="hidden sm:inline">已连接</span>
+          <div className="flex items-center gap-1 text-xs text-green-500" title="API Key 已配置">
+            <CheckCircle2 className="w-3.5 h-3.5" />
           </div>
         )}
+        <Button variant="ghost" size="icon" onClick={toggleTheme}>
+          {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </Button>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger
-            render={
-              <Button variant="ghost" size="icon">
-                <Settings className="w-4 h-4" />
-              </Button>
-            }
-          />
+          <DialogTrigger render={
+            <Button variant="ghost" size="icon">
+              <Settings className="w-4 h-4" />
+            </Button>
+          } />
           <DialogContent className="bg-card border-border">
             <DialogHeader>
               <DialogTitle>API 设置</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">
-                  API Base URL
-                </label>
+                <label className="text-sm text-muted-foreground mb-1.5 block">API Base URL</label>
                 <Input
                   placeholder="https://api.openai.com/v1"
                   value={baseUrlInput}
-                  onChange={(e) => {
-                    setBaseUrlInput(e.target.value);
-                    setTestStatus("idle");
-                    setTestMessage("");
-                  }}
+                  onChange={(e) => { setBaseUrlInput(e.target.value); setTestStatus("idle"); setTestMessage(""); }}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  第三方中转请填写服务商提供的地址，留空默认使用 OpenAI 官方
-                </p>
+                <p className="text-xs text-muted-foreground mt-1">第三方中转请填写服务商提供的地址</p>
               </div>
-
               <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">
-                  API Key
-                </label>
+                <label className="text-sm text-muted-foreground mb-1.5 block">API Key</label>
                 <Input
                   type="password"
                   placeholder="sk-..."
                   value={inputValue}
-                  onChange={(e) => {
-                    setInputValue(e.target.value);
-                    setTestStatus("idle");
-                    setTestMessage("");
-                  }}
+                  onChange={(e) => { setInputValue(e.target.value); setTestStatus("idle"); setTestMessage(""); }}
                 />
               </div>
-
               <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">
-                  代理地址（可选）
-                </label>
+                <label className="text-sm text-muted-foreground mb-1.5 block">代理地址（可选）</label>
                 <Input
                   placeholder="http://127.0.0.1:7890"
                   value={proxyUrlInput}
-                  onChange={(e) => {
-                    setProxyUrlInput(e.target.value);
-                    setTestStatus("idle");
-                    setTestMessage("");
-                  }}
+                  onChange={(e) => { setProxyUrlInput(e.target.value); setTestStatus("idle"); setTestMessage(""); }}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  如果服务端无法直连 API，请填写代理地址（支持 HTTP/SOCKS5）
-                </p>
               </div>
-
               <div className="flex gap-2">
-                <Button
-                  onClick={handleTest}
-                  disabled={!inputValue.trim() || testStatus === "testing"}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  {testStatus === "testing" ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : testStatus === "success" ? (
-                    <CheckCircle2 className="w-4 h-4 mr-2 text-green-500" />
-                  ) : testStatus === "error" ? (
-                    <XCircle className="w-4 h-4 mr-2 text-destructive" />
-                  ) : null}
+                <Button onClick={handleTest} disabled={!inputValue.trim() || testStatus === "testing"} variant="outline" className="flex-1">
+                  {testStatus === "testing" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : testStatus === "success" ? <CheckCircle2 className="w-4 h-4 mr-2 text-green-500" /> : testStatus === "error" ? <XCircle className="w-4 h-4 mr-2 text-destructive" /> : null}
                   {testStatus === "testing" ? "验证中..." : "测试连接"}
                 </Button>
-                <Button onClick={handleSave} className="flex-1">
-                  保存
-                </Button>
+                <Button onClick={handleSave} className="flex-1">保存</Button>
               </div>
-
               {testMessage && (
-                <p
-                  className={`text-xs ${
-                    testStatus === "success"
-                      ? "text-green-500"
-                      : "text-destructive"
-                  }`}
-                >
-                  {testMessage}
-                </p>
+                <p className={`text-xs ${testStatus === "success" ? "text-green-500" : "text-destructive"}`}>{testMessage}</p>
               )}
-
               {apiKey && (
-                <p className="text-xs text-muted-foreground">
-                  当前 Key: {apiKey.slice(0, 8)}...
-                  {baseUrl && ` | Base URL: ${baseUrl}`}
-                </p>
+                <p className="text-xs text-muted-foreground">当前 Key: {apiKey.slice(0, 8)}...{baseUrl && ` | Base URL: ${baseUrl}`}</p>
               )}
             </div>
           </DialogContent>
