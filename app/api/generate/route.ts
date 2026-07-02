@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { httpRequest, httpFormDataRequest } from "@/lib/http-client";
 
 // gpt-image-2 支持的尺寸
+// 2K 档(默认):适合快速出图
 const SIZE_MAP: Record<string, string> = {
   "1:1": "1024x1024",
   "16:9": "2048x1152",
@@ -11,6 +12,20 @@ const SIZE_MAP: Record<string, string> = {
   "3:2": "1536x1024",
   "2:3": "1024x1536",
   "21:9": "3696x1584",
+  "3:1": "3840x1280",
+  auto: "auto",
+};
+
+// 4K 档:quality="4k" 时使用,边长 ≤ 3840px,16 倍数,比例 ≤ 3:1
+const SIZE_4K_MAP: Record<string, string> = {
+  "1:1": "3072x3072",
+  "16:9": "3840x2160",
+  "9:16": "2160x3840",
+  "4:3": "3840x2880",
+  "3:4": "2880x3840",
+  "3:2": "3840x2560",
+  "2:3": "2560x3840",
+  "21:9": "3840x1646",
   "3:1": "3840x1280",
   auto: "auto",
 };
@@ -78,7 +93,8 @@ export async function POST(request: NextRequest) {
     const form = new FormData();
     form.append("model", model);
     form.append("prompt", prompt);
-    form.append("size", SIZE_MAP[size] || "auto");
+    const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
+    form.append("size", sizeMap[size] || "auto");
     form.append("quality", QUALITY_MAP[quality] || "low");
     form.append("response_format", "url"); // 异步接口使用 url 格式，减少响应大小
 
