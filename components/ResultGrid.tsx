@@ -41,12 +41,14 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="aspect-square rounded-xl bg-muted animate-pulse"
-          />
+            className="aspect-square rounded-xl bg-muted overflow-hidden relative"
+          >
+            <div className="absolute inset-0 animate-shimmer" />
+          </div>
         ))}
       </div>
     );
@@ -54,12 +56,12 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
 
   if (results.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-          <Heart className="w-8 h-8 text-primary" />
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-up">
+        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+          <Heart className="w-7 h-7 text-primary" />
         </div>
-        <p className="text-lg font-medium">开始创作</p>
-        <p className="text-sm mt-1">在左侧输入提示词，点击生成按钮创造独特的图像</p>
+        <p className="text-base font-medium text-foreground">开始创作</p>
+        <p className="text-xs mt-1 text-muted-foreground/80">在上方输入提示词，AI 将为你生成图像</p>
       </div>
     );
   }
@@ -68,21 +70,22 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          输出图库 ({results.length})
+          输出图库 <span className="text-foreground font-medium">{results.length}</span>
         </span>
         {results.length > 1 && (
-          <Button variant="ghost" size="sm" onClick={handleDownloadAll}>
+          <Button variant="ghost" size="sm" onClick={handleDownloadAll} className="press transition-base hover:bg-accent/60">
             <Download className="w-4 h-4 mr-2" />
             全部下载
           </Button>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         {results.map((result, index) => (
           <div
             key={result.id}
-            className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer"
+            className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
+            style={{ animationDelay: `${index * 60}ms` }}
             onClick={() => {
               setExpandedIndex(expandedIndex === index ? null : index);
               setZoom(1);
@@ -91,16 +94,18 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
             <img
               src={getDataUrl(result)}
               alt=""
-              className="w-full h-full object-cover transition-transform group-hover:scale-105"
+              className="w-full h-full object-cover transition-slow group-hover:scale-105"
             />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center opacity-0 group-hover:opacity-100">
               <Button
                 variant="secondary"
-                size="sm"
+                size="icon"
+                className="press"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDownload(result);
                 }}
+                aria-label="下载"
               >
                 <Download className="w-4 h-4" />
               </Button>
@@ -111,13 +116,13 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
 
       {/* 展开的完整预览 */}
       {expandedIndex !== null && (
-        <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
+        <div className="rounded-xl border border-border bg-card/50 overflow-hidden animate-scale-in">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-7 h-7"
+                className="w-7 h-7 press transition-base hover:bg-accent/60"
                 onClick={() => {
                   if (expandedIndex > 0) {
                     setExpandedIndex(expandedIndex - 1);
@@ -125,16 +130,17 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
                   }
                 }}
                 disabled={expandedIndex === 0}
+                aria-label="上一张"
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
-              <span className="text-sm text-muted-foreground">
+              <span className="text-sm text-muted-foreground tabular-nums">
                 {expandedIndex + 1} / {results.length}
               </span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-7 h-7"
+                className="w-7 h-7 press transition-base hover:bg-accent/60"
                 onClick={() => {
                   if (expandedIndex < results.length - 1) {
                     setExpandedIndex(expandedIndex + 1);
@@ -142,6 +148,7 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
                   }
                 }}
                 disabled={expandedIndex === results.length - 1}
+                aria-label="下一张"
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
@@ -152,19 +159,21 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="w-7 h-7"
+                  className="w-7 h-7 press"
                   onClick={() => setZoom((z) => Math.max(z - 0.25, 0.25))}
+                  aria-label="缩小"
                 >
                   <ZoomOut className="w-4 h-4" />
                 </Button>
-                <span className="text-xs text-muted-foreground w-10 text-center">
+                <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
                   {Math.round(zoom * 100)}%
                 </span>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="w-7 h-7"
+                  className="w-7 h-7 press"
                   onClick={() => setZoom((z) => Math.min(z + 0.25, 3))}
+                  aria-label="放大"
                 >
                   <ZoomIn className="w-4 h-4" />
                 </Button>
@@ -174,6 +183,7 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
                 variant="secondary"
                 size="sm"
                 onClick={() => handleDownload(results[expandedIndex])}
+                className="press"
               >
                 <Download className="w-4 h-4 mr-2" />
                 下载
@@ -182,8 +192,9 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-7 h-7"
+                className="w-7 h-7 press transition-base hover:bg-accent/60"
                 onClick={() => setExpandedIndex(null)}
+                aria-label="关闭"
               >
                 <X className="w-4 h-4" />
               </Button>
@@ -194,7 +205,7 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
             <img
               src={getDataUrl(results[expandedIndex])}
               alt=""
-              className="transition-transform duration-200"
+              className="transition-slow"
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",

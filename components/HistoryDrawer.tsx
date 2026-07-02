@@ -23,12 +23,12 @@ function HistoryItem({ record, onClick }: {
 
   return (
     <div
-      className="flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-accent"
+      className="group flex items-start gap-3 p-2.5 rounded-lg cursor-pointer transition-base hover:bg-accent/60 active:scale-[0.98]"
       onClick={() => onClick(record)}
     >
-      <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+      <div className="w-11 h-11 rounded-md bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 ring-1 ring-border/50">
         {firstResult?.b64_json ? (
-          <img src={`data:${firstResult.mime};base64,${firstResult.b64_json}`} alt="" className="w-full h-full object-cover" />
+          <img src={`data:${firstResult.mime};base64,${firstResult.b64_json}`} alt="" className="w-full h-full object-cover transition-slow group-hover:scale-105" />
         ) : (
           <ImageIcon className="w-5 h-5 text-muted-foreground" />
         )}
@@ -60,29 +60,31 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
   };
 
   return (
-    <>
-      {/* 抽屉 */}
-      <div className="fixed top-0 left-0 z-50 w-80 h-full bg-card border-r border-border shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <span className="text-sm font-medium">对话列表</span>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleClearAll}>清除历史</Button>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+    <div className="fixed top-0 left-0 z-50 w-80 h-full bg-card border-r border-border shadow-2xl flex flex-col animate-drawer-in">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <span className="text-sm font-medium">对话列表</span>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={handleClearAll} className="press transition-base hover:bg-accent/60 text-muted-foreground hover:text-foreground">清除历史</Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="press transition-base hover:bg-accent/60" aria-label="关闭">
+            <X className="w-4 h-4" />
+          </Button>
         </div>
-        <ScrollArea className="flex-1">
-          <div className="p-2 space-y-1">
-            {records.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">暂无历史记录</p>
-            )}
-            {records.map((record) => (
-              <HistoryItem key={record.id} record={record} onClick={onSelectRecord} />
-            ))}
-          </div>
-        </ScrollArea>
       </div>
-    </>
+      <ScrollArea className="flex-1 scrollbar-thin">
+        <div className="p-2 space-y-0.5">
+          {records.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-in">
+              <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
+              <p className="text-sm">暂无历史记录</p>
+            </div>
+          )}
+          {records.map((record, i) => (
+            <div key={record.id} className="animate-fade-up" style={{ animationDelay: `${Math.min(i * 30, 240)}ms` }}>
+              <HistoryItem record={record} onClick={onSelectRecord} />
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }

@@ -1,14 +1,39 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
+import { toast } from "sonner";
 import { Header } from "@/components/Header";
-import { HistoryDrawer } from "@/components/HistoryDrawer";
+import { HistoryDrawerSkeleton } from "@/components/drawer-skeleton";
 import { UnifiedInputCard, type Quality, type ReferenceImage } from "@/components/UnifiedInputCard";
 import { ResultGrid } from "@/components/ResultGrid";
 import { getApiKey, getBaseUrl, getProxyUrl } from "@/lib/api-key";
 import { getSettings, saveSettings } from "@/lib/api-key";
-import { addHistory } from "@/lib/db";
+import {
+  addHistory,
+  getPromptCache,
+  setPromptCache,
+  cleanExpiredCache,
+  findActiveInFlight,
+  createInFlight,
+  updateInFlightStatus,
+  deleteInFlight,
+  listRecoverableInFlight,
+  markStaleInFlight,
+} from "@/lib/db";
+import { buildCacheKey } from "@/lib/cache-key";
 import type { AspectRatio, GenerateResult, HistoryRecord, ModelInfo } from "@/lib/types";
+
+const HistoryDrawer = dynamic(
+  () => import("@/components/HistoryDrawer").then((m) => m.HistoryDrawer),
+  {
+    ssr: false,
+    loading: () => <HistoryDrawerSkeleton />,
+  }
+);
+
+const CACHE_TTL_MS = 60 * 1000;
+const IN_FLIGHT_MAX_AGE_MS = 5 * 60 * 1000;
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -46,6 +71,26 @@ export default function Home() {
     if (settings.defaultModel) setSelectedModel(settings.defaultModel);
     if (settings.defaultSize) setSelectedSize(settings.defaultSize);
     if (settings.defaultQuality) setSelectedQuality(settings.defaultQuality as Quality);
+    cleanExpiredCache().catch(() => {});
+
+    (async () => {
+      try {
+        const stale = await markStaleInFlight(IN_FLIGHT_MAX_AGE_MS);
+        const recoverable = await listRecoverableInFlight(IN_FLIGHT_MAX_AGE_MS);
+        if (recoverable.length > 0) {
+          const preview = recoverable[0].promptPreview || "(无提示词)";
+          toast.warning(`检测到 ${recoverable.length} 个未完成生成`, {
+            description: `最近一条: "${preview}" — 上游可能仍在生成, 请在历史中查看结果`,
+            duration: 10000,
+          });
+        }
+        if (stale > 0) {
+          console.info(`[in-flight] ${stale} stale entries marked abandoned`);
+        }
+      } catch (err) {
+        console.warn("[in-flight] recovery check failed", err);
+      }
+    })();
   }, [loadModels]);
 
   const handleGenerate = useCallback(async () => {
@@ -54,23 +99,62 @@ export default function Home() {
     if (!apiKey) { setError("请先在设置中配置 API Key"); return; }
     const baseURL = getBaseUrl();
     const proxyURL = getProxyUrl();
+
+    let referencedImages: ReferenceImage[] = [];
+    const hasAtMentions = referenceImages.some((img) => prompt.includes(`@${img.name}`));
+    if (hasAtMentions) {
+      for (const img of referenceImages) if (prompt.includes(`@${img.name}`)) referencedImages.push(img);
+    } else {
+      const imgPattern = /图(\d+)/g;
+      const matches = [...prompt.matchAll(imgPattern)];
+      if (matches.length > 0) {
+        const order = [...matches].map((m) => parseInt(m[1]) - 1).filter((i) => i >= 0 && i < referenceImages.length);
+        referencedImages = [...new Set(order)].map((i) => referenceImages[i]);
+      } else { referencedImages = [...referenceImages]; }
+    }
+
     setLoading(true);
     setError(null);
     setResults([]);
 
+    let inFlightId: string | null = null;
+
     try {
-      let referencedImages: ReferenceImage[] = [];
-      const hasAtMentions = referenceImages.some(img => prompt.includes(`@${img.name}`));
-      if (hasAtMentions) {
-        for (const img of referenceImages) { if (prompt.includes(`@${img.name}`)) referencedImages.push(img); }
-      } else {
-        const imgPattern = /图(\d+)/g;
-        const matches = [...prompt.matchAll(imgPattern)];
-        if (matches.length > 0) {
-          const order = [...matches].map(m => parseInt(m[1]) - 1).filter(i => i >= 0 && i < referenceImages.length);
-          referencedImages = [...new Set(order)].map(i => referenceImages[i]);
-        } else { referencedImages = [...referenceImages]; }
+      const cacheKey = await buildCacheKey({
+        prompt: prompt.trim(),
+        model: selectedModel,
+        size: selectedSize,
+        quality: selectedQuality,
+        referenceImages: referencedImages,
+      });
+      const cached = await getPromptCache(cacheKey);
+      if (cached) {
+        const ageSec = Math.max(1, Math.round((Date.now() - cached.createdAt) / 1000));
+        toast.success(`复用 ${ageSec}s 前的结果`, {
+          description: "相同提示词 + 参数命中 60s 软缓存",
+        });
+        setResults(cached.results);
+        saveSettings({ defaultModel: selectedModel, defaultSize: selectedSize, defaultQuality: selectedQuality });
+        return;
       }
+
+      const dedupHash = `${cacheKey}`;
+      const existing = await findActiveInFlight(dedupHash);
+      if (existing) {
+        const ageSec = Math.max(1, Math.round((Date.now() - existing.startedAt) / 1000));
+        toast.warning(`已有相同请求在进行中`, {
+          description: `${ageSec}s 前发起, 请等待当前任务完成`,
+        });
+        return;
+      }
+
+      const inFlight = await createInFlight({
+        id: `inflight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        promptHash: dedupHash,
+        promptPreview: prompt.trim().slice(0, 60),
+        status: "pending",
+      });
+      inFlightId = inFlight.id;
 
       const formData = new FormData();
       formData.append("prompt", prompt.trim());
@@ -99,6 +183,7 @@ export default function Home() {
       let newResults: GenerateResult[] = [];
       if (data.task_id) {
         const taskId = data.task_id;
+        await updateInFlightStatus(inFlightId, { status: "polling", taskId });
         const maxPolls = 60;
         const pollInterval = 3000;
         let b64Json: string | null = null;
@@ -121,18 +206,26 @@ export default function Home() {
       }
 
       setResults(newResults);
+      setPromptCache(cacheKey, newResults, CACHE_TTL_MS).catch(() => {});
+
       const record: HistoryRecord = {
         id: `hist-${Date.now()}`,
-        params: { prompt: prompt.trim(), model: selectedModel, size: selectedSize, quality: selectedQuality, images: referencedImages.length > 0 ? referencedImages.map(img => img.base64) : undefined },
+        params: { prompt: prompt.trim(), model: selectedModel, size: selectedSize, quality: selectedQuality, images: referencedImages.length > 0 ? referencedImages.map((img) => img.base64) : undefined },
         results: newResults, createdAt: Date.now(),
       };
       await addHistory(record);
       saveSettings({ defaultModel: selectedModel, defaultSize: selectedSize, defaultQuality: selectedQuality });
+      await deleteInFlight(inFlightId);
+      inFlightId = null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "生成失败，请重试");
+      const message = err instanceof Error ? err.message : "生成失败，请重试";
+      setError(message);
+      toast.error("生成失败", { description: message });
+      if (inFlightId) { await updateInFlightStatus(inFlightId, { status: "failed" }); }
     } finally {
       setLoading(false);
       setPollProgress(0);
+      if (inFlightId) { deleteInFlight(inFlightId).catch(() => {}); }
     }
   }, [prompt, referenceImages, selectedModel, selectedSize, selectedQuality]);
 
@@ -158,37 +251,43 @@ export default function Home() {
       )}
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+        <div className="max-w-3xl mx-auto px-6 py-10 space-y-8">
           {/* 大标题 */}
-          <h1 className="text-3xl font-bold text-center text-foreground">智能生图</h1>
+          <div className="text-center space-y-2 animate-fade-up">
+            <h1 className="text-4xl font-semibold tracking-tight text-foreground">智能生图</h1>
+            <p className="text-sm text-muted-foreground">输入提示词，AI 为你创造独特的图像</p>
+          </div>
 
           {/* 一体化输入卡片 */}
-          <UnifiedInputCard
-            prompt={prompt}
-            onPromptChange={setPrompt}
-            referenceImages={referenceImages}
-            onReferenceImagesChange={setReferenceImages}
-            models={models}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-            selectedSize={selectedSize}
-            onSizeChange={setSelectedSize}
-            selectedQuality={selectedQuality}
-            onQualityChange={setSelectedQuality}
-            onGenerate={handleGenerate}
-            loading={loading}
-            pollProgress={pollProgress}
-          />
+          <div className="animate-fade-up [animation-delay:60ms]">
+            <UnifiedInputCard
+              prompt={prompt}
+              onPromptChange={setPrompt}
+              referenceImages={referenceImages}
+              onReferenceImagesChange={setReferenceImages}
+              models={models}
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+              selectedSize={selectedSize}
+              onSizeChange={setSelectedSize}
+              selectedQuality={selectedQuality}
+              onQualityChange={setSelectedQuality}
+              onGenerate={handleGenerate}
+              loading={loading}
+              pollProgress={pollProgress}
+            />
+          </div>
 
           {/* 错误提示 */}
           {error && (
-            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
-              {error}
+            <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-start gap-2">
+              <span className="font-medium shrink-0">提示：</span>
+              <span>{error}</span>
             </div>
           )}
 
           {/* 输出图库 */}
-          <div className="input-card p-5">
+          <div className="animate-fade-up [animation-delay:120ms] input-card p-5">
             <ResultGrid results={results} loading={loading} />
           </div>
         </div>

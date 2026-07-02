@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Loader2, Sparkles } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Loader2, Sparkles, ChevronDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AspectRatio, ModelInfo } from "@/lib/types";
 
@@ -48,6 +48,105 @@ const QUALITIES: { value: Quality; label: string }[] = [
 const MAX_IMG_SIZE = 8 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_COUNT = 8;
+const COMPRESS_THRESHOLD = 1024 * 1024;
+const COMPRESS_MAX_EDGE = 1024;
+const COMPRESS_QUALITY = 0.85;
+
+async function compressImage(file: File): Promise<{ blob: Blob; mime: string }> {
+  if (file.size < COMPRESS_THRESHOLD || !file.type.startsWith("image/")) {
+    return { blob: file, mime: file.type };
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, COMPRESS_MAX_EDGE / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve({ blob: file, mime: file.type }); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob || blob.size >= file.size) { resolve({ blob: file, mime: file.type }); return; }
+          resolve({ blob, mime: "image/jpeg" });
+        },
+        "image/jpeg",
+        COMPRESS_QUALITY
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type }); };
+    img.src = url;
+  });
+}
+
+function SelectChip<T extends string>({
+  value,
+  onChange,
+  options,
+  className = "",
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className={`toolbar-chip ${open ? "border-border bg-accent/60" : ""}`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span>{current?.label}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-base ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-0 min-w-full bg-popover border border-border rounded-xl shadow-xl py-1 z-50 animate-fade-up max-h-60 overflow-y-auto scrollbar-thin">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-base hover:bg-accent/60 ${opt.value === value ? "text-primary" : "text-foreground"}`}
+              role="option"
+              aria-selected={opt.value === value}
+            >
+              <span className="flex-1 text-left whitespace-nowrap">{opt.label}</span>
+              {opt.value === value && <Check className="w-3.5 h-3.5 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
@@ -63,19 +162,24 @@ export function UnifiedInputCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const processFile = useCallback((file: File) => {
+  const processFile = useCallback(async (file: File) => {
     setImgError(null);
     if (!ACCEPTED_TYPES.includes(file.type)) { setImgError("仅支持 JPG, PNG, WEBP"); return; }
     if (file.size > MAX_IMG_SIZE) { setImgError("文件不能超过 8MB"); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      onReferenceImagesChange([...referenceImages, {
-        id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        name: file.name, base64: result, mimeType: file.type,
-      }]);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const { blob, mime } = await compressImage(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        onReferenceImagesChange([...referenceImages, {
+          id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name, base64: result, mimeType: mime,
+        }]);
+      };
+      reader.readAsDataURL(blob);
+    } catch {
+      setImgError("图片处理失败");
+    }
   }, [referenceImages, onReferenceImagesChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -137,19 +241,23 @@ export function UnifiedInputCard({
   const isFull = referenceImages.length >= MAX_COUNT;
 
   return (
-    <div className="input-card p-0 overflow-hidden">
+    <div className="input-card p-0 overflow-hidden transition-slow hover:shadow-xl">
       {/* 上半部分：提示词输入 + 参考图 */}
       <div className="p-5 pb-3">
         {/* 参考图缩略图行 */}
         {referenceImages.length > 0 && (
           <div className="flex flex-wrap gap-3 mb-3">
-            {referenceImages.map((img) => (
-              <div key={img.id} className="flex flex-col items-center gap-1">
-                <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-border/50">
-                  <img src={img.base64} alt={img.name} className="w-full h-full object-cover" />
+            {referenceImages.map((img, i) => (
+              <div
+                key={img.id}
+                className="flex flex-col items-center gap-1 animate-fade-up"
+                style={{ animationDelay: `${i * 30}ms` }}
+              >
+                <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-border/50 transition-base hover:border-border">
+                  <img src={img.base64} alt={img.name} className="w-full h-full object-cover transition-slow group-hover:scale-110" />
                   <Button variant="ghost" size="icon"
-                    className="absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-white rounded-full"
-                    onClick={() => removeImage(img.id)}>
+                    className="absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 transition-base bg-destructive text-white rounded-full press-sm"
+                    onClick={() => removeImage(img.id)} aria-label="删除">
                     <X className="w-2.5 h-2.5" />
                   </Button>
                 </div>
@@ -160,8 +268,8 @@ export function UnifiedInputCard({
               <div onDrop={handleDrop} onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
                 onPaste={handlePaste} tabIndex={0}
-                className={`w-14 h-14 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer transition-all
-                  ${isDragging ? "border-primary bg-primary/5" : "border-border/50 hover:border-primary/50"}`}
+                className={`w-14 h-14 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer transition-base
+                  ${isDragging ? "border-primary bg-primary/10 scale-105" : "border-border/50 hover:border-primary/50 hover:bg-accent/30"}`}
                 onClick={() => fileInputRef.current?.click()}>
                 <ImageIcon className="w-4 h-4 text-muted-foreground" />
               </div>
@@ -178,11 +286,11 @@ export function UnifiedInputCard({
             onKeyDown={handlePromptKeyDown}
             onPaste={handlePaste}
             placeholder="在此处拖入图片，并写入提示词"
-            className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none"
+            className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed"
             rows={4}
           />
           {prompt && (
-            <Button variant="ghost" size="icon" className="absolute top-0 right-0 w-7 h-7" onClick={() => onPromptChange("")}>
+            <Button variant="ghost" size="icon" className="absolute top-0 right-0 w-7 h-7 press transition-base hover:bg-accent/60" onClick={() => onPromptChange("")} aria-label="清空">
               <Eraser className="w-3.5 h-3.5 text-muted-foreground" />
             </Button>
           )}
@@ -190,24 +298,24 @@ export function UnifiedInputCard({
 
         {/* @ 提及建议 */}
         {showMentions && filteredMentions.length > 0 && (
-          <div className="absolute z-50 mt-1 w-56 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
+          <div className="absolute z-50 mt-1 w-56 rounded-xl border border-border bg-popover shadow-xl overflow-hidden animate-fade-up">
             <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border flex items-center gap-1.5">
               <AtSign className="w-3 h-3" /> 选择参考图片
             </div>
-            <div className="max-h-40 overflow-y-auto">
+            <div className="max-h-40 overflow-y-auto scrollbar-thin">
               {filteredMentions.map((img, idx) => (
                 <button key={img.id}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent"}`}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
                   onClick={() => insertMention(img)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
                   <img src={img.base64} alt={img.name} className="w-7 h-7 rounded object-cover flex-shrink-0" />
-                  <span className="truncate">{img.name}</span>
+                  <span className="truncate flex-1">{img.name}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {imgError && <p className="text-xs text-destructive mt-1">{imgError}</p>}
+        {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
       </div>
 
       {/* 下半部分：参数工具栏 */}
@@ -215,7 +323,7 @@ export function UnifiedInputCard({
         <div className="flex items-center gap-2 flex-wrap">
           {/* 添加图片按钮 */}
           {!isFull && (
-            <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full press transition-base hover:bg-accent/60" onClick={() => fileInputRef.current?.click()} aria-label="添加图片">
               <Upload className="w-4 h-4" />
             </Button>
           )}
@@ -223,37 +331,31 @@ export function UnifiedInputCard({
             onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
 
           {/* 模型选择 */}
-          <select value={selectedModel} onChange={(e) => e.target.value && onModelChange(e.target.value)}
-            className="toolbar-chip appearance-none bg-transparent outline-none cursor-pointer text-foreground">
-            {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          <SelectChip value={selectedModel} onChange={onModelChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
 
           {/* 比例选择 */}
-          <select value={selectedSize} onChange={(e) => e.target.value && onSizeChange(e.target.value as AspectRatio)}
-            className="toolbar-chip appearance-none bg-transparent outline-none cursor-pointer text-foreground">
-            {SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
+          <SelectChip value={selectedSize} onChange={onSizeChange} options={SIZES} />
 
           {/* 清晰度 */}
-          <select value={selectedQuality} onChange={(e) => e.target.value && onQualityChange(e.target.value as Quality)}
-            className="toolbar-chip appearance-none bg-transparent outline-none cursor-pointer text-foreground">
-            {QUALITIES.map((q) => <option key={q.value} value={q.value}>{q.label}</option>)}
-          </select>
+          <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
         </div>
 
         {/* 右侧：生成按钮 */}
-        <Button onClick={onGenerate} disabled={!prompt.trim() || loading}
-          className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/80">
+        <Button
+          onClick={onGenerate}
+          disabled={!prompt.trim() || loading}
+          className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
+        >
           {loading ? (
-            <>
+            <span key="loading" className="flex items-center gap-2 animate-fade-in">
               <Loader2 className="w-4 h-4 animate-spin" />
               {pollProgress ? `${pollProgress * 3}s` : "提交中..."}
-            </>
+            </span>
           ) : (
-            <>
+            <span key="idle" className="flex items-center gap-2">
               <Sparkles className="w-4 h-4" />
               生成
-            </>
+            </span>
           )}
         </Button>
       </div>
