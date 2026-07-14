@@ -1,10 +1,20 @@
+// 临时 Header.tsx
 "use client";
+
+/**
+ * Header - 顶部导航栏
+ *
+ * 显示历史记录按钮、主题切换、设置入口。
+ * API Key 是否配置的绿勾来自 ApiConfigContext（响应式）：
+ *  - 修改 Key 后绿勾自动出现/消失
+ *  - 不再需要 useState + useEffect + getApiKey() 同步
+ */
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Sun, Moon, Clock, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getApiKey } from "@/lib/api-key";
+import { useApiConfig } from "@/lib/api-config-context";
 import { SettingsDialogSkeleton } from "./settings-dialog-skeleton";
 
 const SettingsDialog = dynamic(
@@ -20,11 +30,15 @@ interface HeaderProps {
 }
 
 export function Header({ onShowHistory }: HeaderProps) {
-  const [hasKey, setHasKey] = useState(false);
+  // API Key 状态从 Context 读取（响应式：SettingsDialog 修改后自动更新）
+  const { apiKey } = useApiConfig();
+  const hasKey = !!apiKey;
+
+  // 主题状态：来自 DOM（document.documentElement.classList），
+  // 这是「与外部 DOM 同步」的标准 useEffect 用途（React 19 推荐）。
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    setHasKey(!!getApiKey());
     setIsDark(document.documentElement.classList.contains("dark"));
   }, []);
 

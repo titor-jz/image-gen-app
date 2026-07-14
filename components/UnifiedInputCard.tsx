@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Loader2, Sparkles, ChevronDown, Check } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AspectRatio, ModelInfo } from "@/lib/types";
 
@@ -27,8 +27,10 @@ interface UnifiedInputCardProps {
   selectedQuality: Quality;
   onQualityChange: (q: Quality) => void;
   onGenerate: () => void;
+  onCancel?: () => void;
   loading: boolean;
   pollProgress: number;
+  pollElapsedSec?: number;
 }
 
 const SIZES: { value: AspectRatio; label: string }[] = [
@@ -151,7 +153,7 @@ function SelectChip<T extends string>({
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
   models, selectedModel, onModelChange, selectedSize, onSizeChange,
-  selectedQuality, onQualityChange, onGenerate, loading, pollProgress,
+  selectedQuality, onQualityChange, onGenerate, onCancel, loading, pollProgress, pollElapsedSec,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imgError, setImgError] = useState<string | null>(null);
@@ -340,24 +342,40 @@ export function UnifiedInputCard({
           <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
         </div>
 
-        {/* 右侧：生成按钮 */}
-        <Button
-          onClick={onGenerate}
-          disabled={!prompt.trim() || loading}
-          className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
-        >
-          {loading ? (
-            <span key="loading" className="flex items-center gap-2 animate-fade-in">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {pollProgress ? `${pollProgress * 3}s` : "提交中..."}
+        {/* 右侧：生成 / 取消按钮（loading 时切换为取消） */}
+        {loading ? (
+          <Button
+            onClick={onCancel}
+            className="h-9 px-5 gap-2 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 press transition-base shadow-sm hover:shadow-md"
+            aria-label="取消生成"
+          >
+            <span className="flex items-center gap-2 animate-fade-in">
+              <StopCircle className="w-4 h-4" />
+              取消{pollElapsedSec ? ` (${pollElapsedSec}s)` : ""}
             </span>
-          ) : (
-            <span key="idle" className="flex items-center gap-2">
+          </Button>
+        ) : (
+          <Button
+            onClick={onGenerate}
+            disabled={!prompt.trim()}
+            className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
+          >
+            <span className="flex items-center gap-2">
               <Sparkles className="w-4 h-4" />
               生成
             </span>
-          )}
-        </Button>
+          </Button>
+        )}
+
+        {/* 隐藏的进度条：loading 时在卡片底部展示指数退避轮询进度 */}
+        {loading && (
+          <div className="w-full h-1 mt-3 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all duration-500 ease-out"
+              style={{ width: `${Math.min(100, Math.round((pollProgress || 0) * 100))}%` }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

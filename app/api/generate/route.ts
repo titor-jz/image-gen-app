@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { httpRequest, httpFormDataRequest } from "@/lib/http-client";
+import { httpFormDataRequest } from "@/lib/http-client";
+import { errorResponse } from "@/lib/error-messages";
 
 // gpt-image-2 支持的尺寸
 // 2K 档(默认):适合快速出图
@@ -16,7 +17,7 @@ const SIZE_MAP: Record<string, string> = {
   auto: "auto",
 };
 
-// 4K 档:quality="4k" 时使用,边长 ≤ 3840px,16 倍数,比例 ≤ 3:1
+// 4K 档:边长 ≤ 3840px
 const SIZE_4K_MAP: Record<string, string> = {
   "1:1": "3072x3072",
   "16:9": "3840x2160",
@@ -30,16 +31,11 @@ const SIZE_4K_MAP: Record<string, string> = {
   auto: "auto",
 };
 
-// 清晰度 → quality 参数
 const QUALITY_MAP: Record<string, string> = {
   "1k": "low",
   "2k": "medium",
   "4k": "high",
 };
-
-// Vercel Serverless 响应限制约 4.5MB，base64 膨胀 33%
-// 安全阈值：响应体不超过 4MB
-const MAX_RESPONSE_SIZE = 4 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,32 +45,25 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-base-url") ||
       process.env.OPENAI_BASE_URL ||
       "https://api.openai.com/v1";
-    const proxyUrl = request.headers.get("x-proxy-url") || "";
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "请先在设置中配置 API Key" },
-        { status: 401 }
-      );
+      const { body, status } = errorResponse("AUTH_MISSING_KEY");
+      return NextResponse.json({ error: body }, { status });
     }
 
-    // 检查请求体大小
+    // 请求体大小
     const contentLength = request.headers.get("content-length");
     if (contentLength && parseInt(contentLength) > 20 * 1024 * 1024) {
-      return NextResponse.json(
-        { error: "请求体过大（>20MB），请减小参考图尺寸或使用更低清晰度" },
-        { status: 413 }
-      );
+      const { body, status } = errorResponse("REQ_BODY_TOO_LARGE");
+      return NextResponse.json({ error: body }, { status });
     }
 
     let formData: FormData;
     try {
       formData = await request.formData();
     } catch {
-      return NextResponse.json(
-        { error: "请求格式错误，请刷新页面重试" },
-        { status: 400 }
-      );
+      const { body, status } = errorResponse("REQ_BAD_FORMAT");
+      return NextResponse.json({ error: body }, { status });
     }
 
     const prompt = formData.get("prompt") as string;
@@ -84,21 +73,19 @@ export async function POST(request: NextRequest) {
     const imageFiles = formData.getAll("images") as (File | Blob)[];
 
     if (!prompt) {
-      return NextResponse.json({ error: "请输入提示词" }, { status: 400 });
+      const { body, status } = errorResponse("REQ_MISSING_PROMPT");
+      return NextResponse.json({ error: body }, { status });
     }
 
-    // 使用异步接口，避免 Vercel Serverless 超时
     const url = `${baseURL}/images/generations/async`;
-
     const form = new FormData();
     form.append("model", model);
     form.append("prompt", prompt);
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
     form.append("size", sizeMap[size] || "auto");
     form.append("quality", QUALITY_MAP[quality] || "low");
-    form.append("response_format", "url"); // 异步接口使用 url 格式，减少响应大小
+    form.append("response_format", "url");
 
-    // 添加多图参考
     for (let i = 0; i < imageFiles.length; i++) {
       const file = imageFiles[i];
       if (file instanceof Blob) {
@@ -109,16 +96,23 @@ export async function POST(request: NextRequest) {
 
     let res;
     try {
-      res = await httpFormDataRequest(url, form, {
-        Authorization: `Bearer ${apiKey}`,
-      }, proxyUrl || undefined);
+      res = await httpFormDataRequest(
+        url,
+        form,
+        { Authorization: `Bearer ${apiKey}` }
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";
       console.error("[generate] 请求上游 API 失败:", msg, err);
-      return NextResponse.json(
-        { error: `请求上游 API 失败: ${msg}。请检查 API Key 和网络连接。` },
-        { status: 502 }
+      const { body, status } = errorResponse("GEN_UPSTREAM_NETWORK", msg);
+      return NextResponse.json({ error: body }, { status });
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      const { body, status } = errorResponse(
+        res.status === 401 ? "AUTH_INVALID_KEY" : "AUTH_FORBIDDEN"
       );
+      return NextResponse.json({ error: body }, { status });
     }
 
     if (res.status < 200 || res.status >= 300) {
@@ -131,10 +125,8 @@ export async function POST(request: NextRequest) {
         errMsg = `上游服务返回错误 (${res.status})`;
         console.error("[generate] 上游 API 返回非 JSON 错误:", res.status, res.body);
       }
-      return NextResponse.json(
-        { error: `生成失败 (${res.status}): ${errMsg}` },
-        { status: 500 }
-      );
+      const { body, status } = errorResponse("GEN_UPSTREAM_FAILED", `${res.status} ${errMsg}`);
+      return NextResponse.json({ error: body }, { status });
     }
 
     let data;
@@ -142,29 +134,25 @@ export async function POST(request: NextRequest) {
       data = JSON.parse(res.body);
     } catch {
       console.error("[generate] 解析上游响应失败:", res.body);
-      return NextResponse.json(
-        { error: "上游服务返回了无效响应，请稍后重试" },
-        { status: 502 }
-      );
+      const { body, status } = errorResponse("GEN_UPSTREAM_BAD_RESPONSE");
+      return NextResponse.json({ error: body }, { status });
     }
 
-    // 提取 task_id
     const taskId = data?.data?.task_id || data?.task_id;
     if (!taskId) {
       console.error("[generate] 上游响应中未找到 task_id:", data);
-      return NextResponse.json(
-        { error: "生成失败: 未返回任务 ID" },
-        { status: 500 }
-      );
+      const { body, status } = errorResponse("GEN_UPSTREAM_NO_TASK_ID");
+      return NextResponse.json({ error: body }, { status });
     }
 
-    // 立即返回 task_id，前端轮询获取结果
     return NextResponse.json({
       task_id: taskId,
       status: "PENDING",
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "未知错误";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[generate] 未知异常:", error);
+    const { body, status } = errorResponse("UNKNOWN", message);
+    return NextResponse.json({ error: body }, { status });
   }
 }

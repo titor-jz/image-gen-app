@@ -1,6 +1,8 @@
+// 临时文件，待复制到 D:\jz\image-gen-app\app\layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { ApiConfigProvider } from "@/lib/api-config-context";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,8 +31,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
-        <Toaster position="bottom-right" richColors closeButton />
+        {/* ApiConfigProvider 包裹整个应用：让 Header / SettingsDialog /
+            useImageGeneration 等组件共享 API Key / Base URL / Proxy URL 状态。 */}
+        <ApiConfigProvider>
+          {children}
+          <Toaster position="bottom-right" richColors closeButton />
+        </ApiConfigProvider>
       </body>
     </html>
   );

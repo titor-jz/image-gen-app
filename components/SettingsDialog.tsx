@@ -1,4 +1,18 @@
+// 临时 SettingsDialog.tsx
 "use client";
+
+/**
+ * SettingsDialog - API 配置弹窗
+ *
+ * 状态分层：
+ *  - 「已保存值」：来自 ApiConfigContext（响应式）
+ *  - 「输入值」：本地 useState（编辑中不立即持久化）
+ *
+ * 行为保持：
+ *  - 打开 dialog 时从 Context 同步到输入框
+ *  - 点「保存」时写 Context + localStorage + 关闭
+ *  - 点「测试」时仅用 inputValue 测试，不影响 Context
+ */
 
 import { useState, useEffect } from "react";
 import { Settings, CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -11,47 +25,40 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  getApiKey,
-  setApiKey,
-  getBaseUrl,
-  setBaseUrl,
-  getProxyUrl,
-  setProxyUrl,
-} from "@/lib/api-key";
+import { useApiConfig } from "@/lib/api-config-context";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 
 export function SettingsDialog() {
-  const [apiKey, setApiKeyState] = useState("");
-  const [inputValue, setInputValue] = useState("");
-  const [baseUrl, setBaseUrlState] = useState("");
-  const [baseUrlInput, setBaseUrlInput] = useState("");
-  const [proxyUrl, setProxyUrlState] = useState("");
-  const [proxyUrlInput, setProxyUrlInput] = useState("");
+  // 鉴权配置从 Context 读取（响应式，修改后 Header 也会自动更新）
+  const { apiKey, baseUrl, proxyUrl, setApiKey, setBaseUrl, setProxyUrl } =
+    useApiConfig();
+
+  // 本地输入态：编辑中不立即持久化（避免频繁写 localStorage）
+  const [inputValue, setInputValue] = useState(apiKey);
+  const [baseUrlInput, setBaseUrlInput] = useState(baseUrl);
+  const [proxyUrlInput, setProxyUrlInput] = useState(proxyUrl);
+
+  // 测试状态
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
+
+  // 弹窗开关
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // 打开弹窗时（或 Context 变化时）把已保存值同步到输入框
   useEffect(() => {
-    const key = getApiKey();
-    const url = getBaseUrl();
-    const proxy = getProxyUrl();
-    setApiKeyState(key);
-    setInputValue(key);
-    setBaseUrlState(url);
-    setBaseUrlInput(url);
-    setProxyUrlState(proxy);
-    setProxyUrlInput(proxy);
-  }, [dialogOpen]);
+    if (dialogOpen) {
+      setInputValue(apiKey);
+      setBaseUrlInput(baseUrl);
+      setProxyUrlInput(proxyUrl);
+    }
+  }, [dialogOpen, apiKey, baseUrl, proxyUrl]);
 
   const handleSave = () => {
     setApiKey(inputValue);
-    setApiKeyState(inputValue);
     setBaseUrl(baseUrlInput);
-    setBaseUrlState(baseUrlInput);
     setProxyUrl(proxyUrlInput);
-    setProxyUrlState(proxyUrlInput);
     setTestStatus("idle");
     setTestMessage("");
     setDialogOpen(false);

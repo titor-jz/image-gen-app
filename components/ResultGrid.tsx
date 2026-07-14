@@ -14,20 +14,35 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
 
-  const getDataUrl = (result: GenerateResult) =>
-    `data:${result.mime};base64,${result.b64_json}`;
+  /**
+   * 优先使用 blob URL（避免 base64 转 dataURL 的解码开销）
+   * 历史记录等无 imageUrl 的数据回退到 dataURL
+   */
+  const getImageSrc = (result: GenerateResult) =>
+    result.imageUrl || `data:${result.mime};base64,${result.b64_json}`;
 
   const handleDownload = async (result: GenerateResult) => {
     try {
-      const dataUrl = getDataUrl(result);
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
+      // 已有 blob URL 直接使用，零额外转换
+      // 否则从 dataURL 走一次 fetch 转 blob
+      let downloadUrl: string | undefined = result.imageUrl;
+      let needsRevoke = false;
+      if (!downloadUrl) {
+        const dataUrl = `data:${result.mime};base64,${result.b64_json}`;
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        downloadUrl = URL.createObjectURL(blob);
+        needsRevoke = true;
+      }
       const link = document.createElement("a");
-      link.href = blobUrl;
+      link.href = downloadUrl;
       link.download = `generated-${Date.now()}.${result.mime.split("/")[1] || "png"}`;
       link.click();
-      URL.revokeObjectURL(blobUrl);
+      // 仅在本次新建的 URL 上 revoke，复用的 imageUrl 不能动
+      if (needsRevoke && downloadUrl) {
+        const urlToRevoke = downloadUrl;
+        setTimeout(() => URL.revokeObjectURL(urlToRevoke), 1000);
+      }
     } catch (e) {
       console.error("Download failed:", e);
     }
@@ -92,7 +107,7 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
             }}
           >
             <img
-              src={getDataUrl(result)}
+              src={getImageSrc(result)}
               alt=""
               className="w-full h-full object-cover transition-slow group-hover:scale-105"
             />
@@ -203,7 +218,7 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
 
           <div className="flex items-center justify-center p-4 overflow-auto max-h-[70vh]">
             <img
-              src={getDataUrl(results[expandedIndex])}
+              src={getImageSrc(results[expandedIndex])}
               alt=""
               className="transition-slow"
               style={{

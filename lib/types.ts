@@ -1,4 +1,4 @@
-export type AspectRatio = "auto" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+﻿export type AspectRatio = "auto" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
 export type ModelId = "gpt-image-2" | string;
 
@@ -13,8 +13,12 @@ export interface GenerateParams {
 
 export interface GenerateResult {
   id: string;
-  b64_json: string; // base64 image data
-  mime: string; // image mime type
+  /** base64 image data（用于持久化到 IndexedDB 与历史回填） */
+  b64_json: string;
+  /** 内存中的 blob: URL（仅当前会话有效，避免 base64 来回转换） */
+  imageUrl?: string;
+  /** image mime type */
+  mime: string;
   prompt: string;
   model: string;
   size: AspectRatio;

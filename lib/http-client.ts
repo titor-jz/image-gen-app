@@ -31,8 +31,7 @@ export async function httpRequest(
 export async function httpFormDataRequest(
   urlStr: string,
   form: FormData,
-  extraHeaders: Record<string, string> = {},
-  _proxyUrl?: string
+  extraHeaders: Record<string, string> = {}
 ): Promise<HttpResult> {
   const res = await fetch(urlStr, {
     method: "POST",

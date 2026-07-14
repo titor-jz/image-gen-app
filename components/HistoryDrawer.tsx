@@ -1,10 +1,18 @@
+// 临时 HistoryDrawer.tsx
 "use client";
 
+/**
+ * HistoryDrawer - 历史记录侧边栏
+ *
+ * 显示所有历史生成记录，支持单击回填、清空。
+ * 数据来源：IndexedDB（通过 lib/db.getAllHistory）。
+ */
+
 import { useState, useEffect, useCallback } from "react";
-import { X, Trash2, Image as ImageIcon, Clock } from "lucide-react";
+import { X, Image as ImageIcon, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getAllHistory, deleteHistoryBatch, deleteAllHistory } from "@/lib/db";
+import { getAllHistory, deleteAllHistory } from "@/lib/db";
 import type { HistoryRecord } from "@/lib/types";
 
 interface HistoryDrawerProps {
