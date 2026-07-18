@@ -361,10 +361,6 @@ export function useImageGeneration(
           model,
           size,
           quality,
-          images:
-            referencedImages.length > 0
-              ? referencedImages.map((img) => img.base64)
-              : undefined,
         },
         results: newResults,
         createdAt: Date.now(),

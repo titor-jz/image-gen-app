@@ -20,6 +20,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { HistoryDrawerSkeleton } from "@/components/drawer-skeleton";
 import {
@@ -85,26 +86,23 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
 
   // 7. 从历史记录回填
+  // 7. 从历史记录回填（参考图不再恢复，需用户重新上传）
   const handleSelectRecord = useCallback((record: HistoryRecord) => {
     setPrompt(record.params.prompt);
     setSelectedModel(record.params.model);
     setSelectedSize(record.params.size || "auto");
     setSelectedQuality((record.params.quality || "1k") as Quality);
     setResults(record.results);
-    if (record.params.images && record.params.images.length > 0) {
-      const restored: ReferenceImage[] = record.params.images.map(
-        (base64, i) => ({
-          id: `ref-hist-${i}`,
-          name: `参考图${i + 1}.png`,
-          base64,
-          mimeType: "image/png",
-        })
-      );
-      setReferenceImages(restored);
-    } else {
-      setReferenceImages([]);
-    }
+    // 历史记录不再保存参考图原始 base64（避免 IDB 存储膨胀），
+    // 旧记录兼容：params.images 仍可能存在，但不再回填到参考图区。
+    const hadReferenceImages = Array.isArray(record.params.images) && record.params.images.length > 0;
+    setReferenceImages([]);
     setShowHistory(false);
+    if (hadReferenceImages) {
+      toast.info("已恢复提示词和参数", {
+        description: "历史记录未保存参考图，请重新上传",
+      });
+    }
   }, [setResults]);
 
   return (

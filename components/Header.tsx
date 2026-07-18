@@ -1,13 +1,14 @@
-// 临时 Header.tsx
 "use client";
 
 /**
  * Header - 顶部导航栏
  *
  * 显示历史记录按钮、主题切换、设置入口。
- * API Key 是否配置的绿勾来自 ApiConfigContext（响应式）：
- *  - 修改 Key 后绿勾自动出现/消失
- *  - 不再需要 useState + useEffect + getApiKey() 同步
+ * 主题状态：
+ *  - 默认白天（无 localStorage 时）
+ *  - 切换时写入 localStorage（image-gen-theme: light | dark）
+ *  - 初始化时立即读取，避免首屏闪烁
+ * API Key 状态来自 ApiConfigContext（响应式）。
  */
 
 import { useState, useEffect } from "react";
@@ -25,37 +26,50 @@ const SettingsDialog = dynamic(
   }
 );
 
+const THEME_STORAGE_KEY = "image-gen-theme";
+type Theme = "light" | "dark";
+
+function getInitialTheme(): Theme {
+  if (typeof window === "undefined") return "light";
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === "light" || saved === "dark") return saved;
+  return "light";
+}
+
+function applyTheme(theme: Theme) {
+  const html = document.documentElement;
+  if (theme === "dark") html.classList.add("dark");
+  else html.classList.remove("dark");
+}
+
 interface HeaderProps {
   onShowHistory: () => void;
 }
 
 export function Header({ onShowHistory }: HeaderProps) {
-  // API Key 状态从 Context 读取（响应式：SettingsDialog 修改后自动更新）
   const { apiKey } = useApiConfig();
   const hasKey = !!apiKey;
-
-  // 主题状态：来自 DOM（document.documentElement.classList），
-  // 这是「与外部 DOM 同步」的标准 useEffect 用途（React 19 推荐）。
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    setIsDark(document.documentElement.classList.contains("dark"));
+    const initial = getInitialTheme();
+    applyTheme(initial);
+    setIsDark(initial === "dark");
   }, []);
 
   const toggleTheme = () => {
-    const html = document.documentElement;
-    if (html.classList.contains("dark")) {
-      html.classList.remove("dark");
-      setIsDark(false);
-    } else {
-      html.classList.add("dark");
-      setIsDark(true);
+    const next: Theme = isDark ? "light" : "dark";
+    applyTheme(next);
+    setIsDark(next === "dark");
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // 隐私模式或 quota 满：忽略，不影响主题切换
     }
   };
 
   return (
     <header className="flex items-center justify-between px-6 py-4">
-      {/* 左侧：历史记录按钮 */}
       <Button
         variant="ghost"
         size="sm"
@@ -66,7 +80,6 @@ export function Header({ onShowHistory }: HeaderProps) {
         <span className="text-sm">对话列表</span>
       </Button>
 
-      {/* 右侧：主题 + 设置 */}
       <div className="flex items-center gap-1">
         {hasKey && (
           <div
