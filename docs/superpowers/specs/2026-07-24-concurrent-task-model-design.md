@@ -123,19 +123,22 @@ const abortMapRef = useRef<Map<string, AbortController>>(new Map());
 ```
 > `loading` 不再是独立 state，改为 `useMemo` 派生，避免与 tasks 不一致。
 
-`handleGenerate()` 流程：
+`handleGenerate()` 流程（async，多次调用重叠即跨批次并发；UI 不 await，故不阻塞按钮）：
 1. 前置校验（提示词/apiKey）；失败设全局 `error` 并 return。
 2. 解析参考图、解码 blob 一次（N 个任务共享）。
-3. 生成 `batchId = batch-{ts}`。
-4. 创建 N 个 submitting 任务追加 tasks（不预查缓存——缓存检测下沉到 runTask，保持单任务自驱、逻辑单一）。
-5. 对每个任务 `runTask(task)` 并发执行（不 await 整批，逐任务自驱，互不阻塞）。
+3. 生成 `batchId = batch-{ts}`；生成 cacheKey（不含 n）。
+4. 批次级 in-flight 抢占 `claimInFlight(cacheKey)`：
+   - busy（已有同参数批次在跑）→ 创建 N 个 cancelled 任务（提示"与进行中任务重复"）+ toast，return（AC5，不发上游）。
+   - claimed → 记 inFlightId，进入步骤 5。
+5. 创建 N 个 submitting 任务追加 tasks。
+6. `await Promise.allSettled(tasks.map(runTask))`（该次调用阻塞至本批结束，但不阻塞 UI 与其他 handleGenerate 调用）。
+7. 汇总：成功项 push results；批次有 ≥1 成功则写历史（该批成功项）+ 写缓存；`releaseInFlight(inFlightId)`。
 
-`runTask(task)` 单任务流程（缓存/in-flight/上游三态自决）：
-1. 60s 缓存命中检测（任务级 cacheKey，不含 n）；命中 → 更新该任务 success + 把缓存结果 push 到 results（与上游成功路径一致；累积模式下可能与既有图重复，属预期行为），直接 return。
-2. in-flight 任务级去重：若相同 cacheKey 已有"非终态"任务（本会话 tasks 检查 + IDB claimInFlight），该任务标记 cancelled，提示"与进行中任务重复"，return。
-3. 创建独立 `AbortController` 存入 `abortMapRef`。
-4. POST /api/generate（n=1）→ 拿 task_id → 指数退避轮询 → 成功下载 → push results + 更新 success；失败更新 failed + toast；abort → cancelled。
-5. finally：从 `abortMapRef` 删除自身 controller；释放 in-flight 占位。
+`runTask(task)` 单任务流程：
+1. 60s 缓存命中检测（cacheKey，不含 n）；命中 → 更新 success + push results（可能与既有图重复，属预期，AC4），return。
+2. 创建独立 `AbortController` 存入 `abortMapRef`。
+3. POST /api/generate（n=1）→ 拿 task_id → 指数退避轮询 → 成功下载 → push results + 更新 success；失败更新 failed + toast；abort → cancelled。
+4. finally：从 `abortMapRef` 删除自身 controller。
 
 `cancelTask(id)`：
 ```ts
@@ -146,9 +149,10 @@ abortMapRef.current.get(id)?.abort();
 全局 `error`：仅前置校验用。生成阶段失败改为每任务条上显示 + toast。
 
 ### 5.3 lib/db.ts
-- in-flight 去重粒度：批次级 → 任务级（每个 cacheKey 独立 claimInFlight）。
-- `claimInFlight` / `releaseInFlight` / `updateInFlightStatus` 接口不变，仅调用方从"每批一次"改为"每任务一次"。
-- 历史记录：一次点击的 N 张作为一条 HistoryRecord（results 含 N 张），在批次全部终态后写入（用 batchId 收集成功结果）。
+- in-flight 保持**批次级**（按 cacheKey），一次"生成"点击 claim 一次，N 个任务共享 inFlightId。
+- 同批次 N 个任务参数相同但不互相冲突（批次内不重复 claim）；跨批次同参数靠 claim busy 去重（AC5）。
+- `claimInFlight` / `releaseInFlight` / `updateInFlightStatus` 接口不变。
+- 历史记录：一次点击的 N 张作为一条 HistoryRecord（results 含该批成功项），在批次 allSettled 后写入。
 
 ### 5.4 components/UnifiedInputCard.tsx
 - Props 变化：
@@ -187,7 +191,7 @@ abortMapRef.current.get(id)?.abort();
 | 单任务上游 4xx/5xx | 该任务 failed + toast（含错误码文案），其余继续 |
 | 单任务轮询超时(3min) | 该任务 failed(TASK_TIMEOUT) + toast |
 | 用户取消 | 该任务 cancelled，已成功的不受影响，不写缓存/历史 |
-| 相同参数已在跑 | 新任务 cancelled + toast"与进行中任务重复" |
+| 相同参数已在跑（跨批次） | 整批 N 个任务 cancelled + toast"与进行中任务重复"，不发上游 |
 | 缓存命中 | 任务直接 success，不跑上游 |
 | 部分成功 | 成功的进 results/历史/缓存；失败的仅 toast，results 不含失败项 |
 
@@ -200,7 +204,7 @@ abortMapRef.current.get(id)?.abort();
 - **blob URL 释放**：累积模式下，仅当 results 被历史回填整体替换时 revoke 旧 URL；进行中任务的 URL 不动。
 - **终态淡出时长**：1.5s，平衡"看到结果"与"列表不残留"。可调。
 - **旧 BatchTaskSlot / 旧 n 缓存**：BatchTaskSlot 移除；旧 n 缓存自然过期（60s）。
-- **多标签页 in-flight**：仍靠 IDB claimInFlight 跨标签页去重，逻辑不变，只是粒度到任务。
+- **多标签页 in-flight**：仍靠 IDB claimInFlight 跨标签页去重（批次级，按 cacheKey），逻辑不变。
 
 ## 9. 涉及文件
 
@@ -208,8 +212,8 @@ abortMapRef.current.get(id)?.abort();
 |---|---|
 | lib/types.ts | 新增 GenTask；移除 BatchTaskSlot |
 | lib/cache-key.ts | 移除 CacheKeyInput.n 及其在 composite 中的项 |
-| hooks/useImageGeneration.ts | 核心重构：tasks/abortMapRef/runTask/cancelTask；loading 派生；results 累积 |
-| lib/db.ts | in-flight 调用方改任务级（接口不变） |
+| hooks/useImageGeneration.ts | 核心重构：tasks/abortMapRef/runTask/cancelTask；loading 派生；results 累积；in-flight 保持批次级 |
+| lib/db.ts | 无改动（in-flight 接口不变，仍批次级调用） |
 | components/UnifiedInputCard.tsx | 移除旧进度 props；新增 tasks/onCancelTask；按钮常驻；进度条带 X |
 | components/ResultGrid.tsx | 移除 loading 骨架；空态增加"生成中…" |
 | app/page.tsx | 适配新 hook 返回值与 props |
