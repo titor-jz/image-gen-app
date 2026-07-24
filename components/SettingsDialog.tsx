@@ -49,6 +49,7 @@ export function SettingsDialog() {
   // 打开弹窗时（或 Context 变化时）把已保存值同步到输入框
   useEffect(() => {
     if (dialogOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开时用父级值初始化本地输入框，props→state 同步模式
       setInputValue(apiKey);
       setBaseUrlInput(baseUrl);
       setProxyUrlInput(proxyUrl);

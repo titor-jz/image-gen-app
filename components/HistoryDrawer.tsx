@@ -60,6 +60,7 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
     setRecords(data);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 抽屉打开时加载历史，事件驱动加载的标准写法
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const handleClearAll = async () => {

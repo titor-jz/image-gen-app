@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Electron 主进程/preload 与构建脚本运行在 Node CommonJS 上下文，
+    // 必须使用 require()，ESM 规则 @typescript-eslint/no-require-imports 不适用
+    "electron/**",
+    "scripts/**",
   ]),
 ]);
 

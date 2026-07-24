@@ -54,6 +54,7 @@ export function Header({ onShowHistory }: HeaderProps) {
   useEffect(() => {
     const initial = getInitialTheme();
     applyTheme(initial);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时从 localStorage 同步主题，SSR 时代遗留写法（与 page.tsx 一致）
     setIsDark(initial === "dark");
   }, []);
 
