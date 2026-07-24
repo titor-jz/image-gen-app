@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * Home Page - 智能生图主界面
@@ -50,6 +50,8 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState<ModelInfo["id"]>("gpt-image-2");
   const [selectedSize, setSelectedSize] = useState<AspectRatio>("auto");
   const [selectedQuality, setSelectedQuality] = useState<Quality>("1k");
+  // 单次并发生成数量（1~4），默认 1 保持向后兼容；SSR/CSR 一致由 useState 初值保证
+  const [selectedN, setSelectedN] = useState<1 | 2 | 3 | 4>(1);
 
   // 2. 挂载后从 localStorage 同步用户上次的选择
   // 必须用 useEffect（而非 useState lazy init），因为 localStorage 在 SSR 时不存在，
@@ -61,6 +63,7 @@ export default function Home() {
     if (settings.defaultSize) setSelectedSize(settings.defaultSize);
     if (settings.defaultQuality)
       setSelectedQuality(settings.defaultQuality as Quality);
+    if (settings.defaultN) setSelectedN(settings.defaultN);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -70,16 +73,17 @@ export default function Home() {
   // 4. 启动时检测未完成的任务
   useInFlightRecovery();
 
-  // 5. 核心生成流程（含指数退避轮询 + 取消）
+  // 5. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
-    results, loading, error, pollProgress, pollElapsedSec,
-    handleGenerate, cancel, setResults,
+    results, loading, error, tasks,
+    handleGenerate, cancelTask, setResults,
   } = useImageGeneration({
     prompt,
     referenceImages,
     model: selectedModel,
     size: selectedSize,
     quality: selectedQuality,
+    n: selectedN,
   });
 
   // 6. 历史抽屉
@@ -142,11 +146,11 @@ export default function Home() {
               onSizeChange={setSelectedSize}
               selectedQuality={selectedQuality}
               onQualityChange={setSelectedQuality}
+              selectedN={selectedN}
+              onNChange={setSelectedN}
+              tasks={tasks}
+              onCancelTask={cancelTask}
               onGenerate={handleGenerate}
-              onCancel={cancel}
-              loading={loading}
-              pollProgress={pollProgress}
-              pollElapsedSec={pollElapsedSec}
             />
           </div>
 
@@ -160,7 +164,7 @@ export default function Home() {
 
           {/* 输出图库 */}
           <div className="animate-fade-up [animation-delay:120ms] input-card p-5">
-            <ResultGrid results={results} loading={loading} />
+            <ResultGrid results={results} hasRunning={loading} />
           </div>
         </div>
       </main>

@@ -7,10 +7,11 @@ import type { GenerateResult } from "@/lib/types";
 
 interface ResultGridProps {
   results: GenerateResult[];
-  loading: boolean;
+  /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
+  hasRunning?: boolean;
 }
 
-export function ResultGrid({ results, loading }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -54,29 +55,18 @@ export function ResultGrid({ results, loading }: ResultGridProps) {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="grid grid-cols-2 gap-3">
-        {[1, 2, 3, 4].map((i) => (
-          <div
-            key={i}
-            className="aspect-square rounded-xl bg-muted overflow-hidden relative"
-          >
-            <div className="absolute inset-0 animate-shimmer" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   if (results.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-up">
         <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
           <Heart className="w-7 h-7 text-primary" />
         </div>
-        <p className="text-base font-medium text-foreground">开始创作</p>
-        <p className="text-xs mt-1 text-muted-foreground/80">在上方输入提示词，AI 将为你生成图像</p>
+        <p className="text-base font-medium text-foreground">
+          {hasRunning ? "生成中…" : "开始创作"}
+        </p>
+        <p className="text-xs mt-1 text-muted-foreground/80">
+          {hasRunning ? "任务进行中，完成后将在此展示" : "在上方输入提示词，AI 将为你生成图像"}
+        </p>
       </div>
     );
   }

@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, StopCircle } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { AspectRatio, ModelInfo } from "@/lib/types";
+import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
 
 export interface ReferenceImage {
   id: string;
@@ -26,11 +26,13 @@ interface UnifiedInputCardProps {
   onSizeChange: (s: AspectRatio) => void;
   selectedQuality: Quality;
   onQualityChange: (q: Quality) => void;
+  selectedN: 1 | 2 | 3 | 4;
+  onNChange: (n: 1 | 2 | 3 | 4) => void;
+  /** 全部会话任务（进行中 + 终态淡出期），用于渲染进度列表 */
+  tasks: GenTask[];
+  /** 取消单个任务 */
+  onCancelTask: (id: string) => void;
   onGenerate: () => void;
-  onCancel?: () => void;
-  loading: boolean;
-  pollProgress: number;
-  pollElapsedSec?: number;
 }
 
 const SIZES: { value: AspectRatio; label: string }[] = [
@@ -45,6 +47,13 @@ const QUALITIES: { value: Quality; label: string }[] = [
   { value: "1k", label: "1K" },
   { value: "2k", label: "2K" },
   { value: "4k", label: "4K" },
+];
+/** 单次生成图片数量选项。值用 string 是为了复用 SelectChip<string> */
+const COUNTS: { value: string; label: string }[] = [
+  { value: "1", label: "1张" },
+  { value: "2", label: "2张" },
+  { value: "3", label: "3张" },
+  { value: "4", label: "4张" },
 ];
 
 const MAX_IMG_SIZE = 8 * 1024 * 1024;
@@ -153,7 +162,8 @@ function SelectChip<T extends string>({
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
   models, selectedModel, onModelChange, selectedSize, onSizeChange,
-  selectedQuality, onQualityChange, onGenerate, onCancel, loading, pollProgress, pollElapsedSec,
+  selectedQuality, onQualityChange, selectedN, onNChange, tasks, onCancelTask,
+  onGenerate,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [imgError, setImgError] = useState<string | null>(null);
@@ -340,43 +350,98 @@ export function UnifiedInputCard({
 
           {/* 清晰度 */}
           <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
+
+          {/* 生成数量：第 4 个 chip，与模型/比例/清晰度并列 */}
+          <SelectChip
+            value={String(selectedN)}
+            onChange={(v) => onNChange(Number(v) as 1 | 2 | 3 | 4)}
+            options={COUNTS}
+          />
         </div>
 
-        {/* 右侧：生成 / 取消按钮（loading 时切换为取消） */}
-        {loading ? (
-          <Button
-            onClick={onCancel}
-            className="h-9 px-5 gap-2 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 press transition-base shadow-sm hover:shadow-md"
-            aria-label="取消生成"
-          >
-            <span className="flex items-center gap-2 animate-fade-in">
-              <StopCircle className="w-4 h-4" />
-              取消{pollElapsedSec ? ` (${pollElapsedSec}s)` : ""}
-            </span>
-          </Button>
-        ) : (
-          <Button
-            onClick={onGenerate}
-            disabled={!prompt.trim()}
-            className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
-          >
-            <span className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              生成
-            </span>
-          </Button>
-        )}
-
-        {/* 隐藏的进度条：loading 时在卡片底部展示指数退避轮询进度 */}
-        {loading && (
-          <div className="w-full h-1 mt-3 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all duration-500 ease-out"
-              style={{ width: `${Math.min(100, Math.round((pollProgress || 0) * 100))}%` }}
-            />
-          </div>
-        )}
+        {/* 右侧：生成按钮（常驻可用，不再因 loading 切换成取消） */}
+        <Button
+          onClick={onGenerate}
+          disabled={!prompt.trim()}
+          className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
+        >
+          <span className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4" />
+            生成
+          </span>
+        </Button>
       </div>
+
+      {/* 任务进度列表：按 batchId 分组，每条带 X 取消按钮。
+          进行中/刚终态(淡出期)的任务都显示；终态 1.5s 后由 hook 移除。 */}
+      {tasks.length > 0 && (
+        <div className="px-4 pb-3 flex flex-col gap-1.5 animate-fade-in">
+          {Object.entries(
+            tasks.reduce<Record<string, GenTask[]>>((acc, t) => {
+              (acc[t.batchId] ??= []).push(t);
+              return acc;
+            }, {})
+          ).map(([batchId, group]) => (
+            <div key={batchId} className="flex flex-col gap-1">
+              {group.map((slot) => {
+                const running =
+                  slot.status === "submitting" || slot.status === "polling";
+                const barColor =
+                  slot.status === "failed"
+                    ? "bg-destructive"
+                    : slot.status === "cancelled"
+                    ? "bg-muted-foreground/40"
+                    : slot.status === "success"
+                    ? "bg-emerald-500"
+                    : "bg-primary";
+                const label =
+                  slot.status === "success"
+                    ? "完成"
+                    : slot.status === "failed"
+                    ? "失败"
+                    : slot.status === "cancelled"
+                    ? "取消"
+                    : slot.elapsedSec
+                    ? `${slot.elapsedSec}s`
+                    : "等待";
+                return (
+                  <div key={slot.id} className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-5 shrink-0">
+                      #{slot.slot + 1}
+                    </span>
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ease-out ${barColor}`}
+                        style={{
+                          width: `${slot.status === "success" || slot.status === "failed" || slot.status === "cancelled"
+                            ? 100
+                            : Math.min(100, Math.round((slot.progress || 0) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
+                      {label}
+                    </span>
+                    {running ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-5 h-5 shrink-0 press hover:bg-accent/60"
+                        onClick={() => onCancelTask(slot.id)}
+                        aria-label={`取消第 ${slot.slot + 1} 张`}
+                      >
+                        <X className="w-3 h-3 text-muted-foreground" />
+                      </Button>
+                    ) : (
+                      <span className="w-5 h-5 shrink-0" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

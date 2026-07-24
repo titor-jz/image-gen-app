@@ -1,31 +1,19 @@
-// 临时 useImageGeneration.ts
 "use client";
 
 /**
- * useImageGeneration - 核心生成流程 Hook
+ * useImageGeneration - 核心生成流程 Hook（任务级状态模型）
  *
- * 封装了从用户点击"生成"到图片展示的完整流程：
- *  1. 校验 API Key / 提示词
- *  2. 解析参考图（@名称 / 图N 序号 / 全部）
- *  3. 60s 软缓存命中检测（IndexedDB）
- *  4. in-flight 去重（IndexedDB 原子操作）
- *  5. POST /api/generate 提交异步任务（可中断）
- *  6. 指数退避轮询 /api/task/[id]（1s→2s→4s→8s→10s 上限）
- *  7. 写缓存 + 写历史 + 清理 in-flight
- *  8. 失败/取消时友好提示（通过 i18n 错误码）
+ * 每张图 = 一个独立 GenTask，独立 AbortController/进度/取消。
+ *  - handleGenerate: 批次级 claimInFlight → 创建 N 个 submitting 任务
+ *    → await Promise.allSettled(runTask×N) → 汇总 results/历史/缓存
+ *  - runTask: 缓存命中/上游提交/指数退避轮询，单任务自决终态
+ *  - cancelTask(id): abort 单个任务，不影响其他
+ *  - results 跨批次累积；loading 由 tasks 派生
  *
- * API Key 来源：
- *  - 通过 useApiConfig() 订阅 Context（响应式）
- *  - apiKeyRef 在 useCallback 闭包内同步最新值（避免依赖 apiKey 触发重建）
- *
- * 暴露给 UI 的：
- *  - results / loading / error / pollProgress
- *  - handleGenerate(): 开始生成
- *  - cancel(): 取消进行中的任务（中止轮询 + AbortController）
- *  - setResults: 供历史回填使用
+ * 跨批次并发：handleGenerate 是 async，UI 不 await，故多次点击重叠并发。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { buildApiHeaders } from "@/lib/api-headers";
 import { useApiConfig } from "@/lib/api-config-context";
@@ -47,15 +35,18 @@ import {
 import type {
   AspectRatio,
   GenerateResult,
+  GenTask,
   HistoryRecord,
   ModelId,
 } from "@/lib/types";
 import type { Quality, ReferenceImage } from "@/components/UnifiedInputCard";
 
-const CACHE_TTL_MS = 60 * 1000; // 60s 软缓存
-const POLL_BASE_MS = 1000; // 起始轮询间隔 1s
-const POLL_MAX_MS = 10 * 1000; // 退避上限 10s
-const POLL_TIMEOUT_MS = 3 * 60 * 1000; // 总超时 3 分钟
+const CACHE_TTL_MS = 60 * 1000;
+const POLL_BASE_MS = 1000;
+const POLL_MAX_MS = 10 * 1000;
+const POLL_TIMEOUT_MS = 3 * 60 * 1000;
+/** 终态任务在进度列表中保留展示的时长，过后淡出移除 */
+const TERMINAL_FADE_MS = 1500;
 
 export interface UseImageGenerationOptions {
   prompt: string;
@@ -63,17 +54,27 @@ export interface UseImageGenerationOptions {
   model: ModelId;
   size: AspectRatio;
   quality: Quality;
+  /** 单次点击并发生成的图片数量（1~4），由 UI 数量选择器驱动 */
+  n: 1 | 2 | 3 | 4;
 }
 
 export interface UseImageGenerationResult {
+  /** 图库数据源，跨批次累积（仅历史回填整体替换） */
   results: GenerateResult[];
+  /** 是否有任务进行中（由 tasks 派生，非独立 state） */
   loading: boolean;
+  /** 前置校验错误（无提示词/无 key）；生成阶段错误改为每任务条+toast */
   error: string | null;
-  pollProgress: number;
-  pollElapsedSec: number;
+  /** 全部会话任务（进行中 + 终态淡出期内） */
+  tasks: GenTask[];
   handleGenerate: () => Promise<void>;
-  cancel: () => void;
+  /** 取消单个任务（abort 其 AbortController） */
+  cancelTask: (id: string) => void;
   setResults: React.Dispatch<React.SetStateAction<GenerateResult[]>>;
+}
+
+function genId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 /**
@@ -109,13 +110,7 @@ function resolveReferencedImages(
 }
 
 /**
- * 指数退避 sleep
- * - 第 1 次：1s
- * - 第 2 次：2s
- * - 第 3 次：4s
- * - 第 4 次：8s
- * - 第 5 次及之后：10s（上限）
- * 支持 AbortController 立即中断
+ * 指数退避 sleep，支持 AbortController 立即中断
  */
 function backoffSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -152,7 +147,10 @@ class ApiError extends Error {
 /**
  * 解析 fetch 错误响应 → ApiError
  */
-async function toApiError(response: Response, defaultCode: ErrorCode): Promise<ApiError> {
+async function toApiError(
+  response: Response,
+  defaultCode: ErrorCode
+): Promise<ApiError> {
   try {
     const json = await response.json();
     const { code, details } = parseErrorResponse(json);
@@ -165,35 +163,52 @@ async function toApiError(response: Response, defaultCode: ErrorCode): Promise<A
 export function useImageGeneration(
   options: UseImageGenerationOptions
 ): UseImageGenerationResult {
-  const { prompt, referenceImages, model, size, quality } = options;
+  const { prompt, referenceImages, model, size, quality, n } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
   const { apiKey: apiKeyFromCtx, baseUrl, proxyUrl } = useApiConfig();
-  // 用 ref 同步最新值：避免 handleGenerate useCallback 依赖 apiKey 频繁重建
   const apiKeyRef = useRef(apiKeyFromCtx);
   useEffect(() => {
     apiKeyRef.current = apiKeyFromCtx;
   }, [apiKeyFromCtx]);
 
+  const [tasks, setTasks] = useState<GenTask[]>([]);
   const [results, setResults] = useState<GenerateResult[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pollProgress, setPollProgress] = useState(0);
-  const [pollElapsedSec, setPollElapsedSec] = useState(0);
 
-  const abortRef = useRef<AbortController | null>(null);
-  const inFlightIdRef = useRef<string | null>(null);
-  const cancelledRef = useRef(false);
+  // 每个任务一个 AbortController，支持单张级取消
+  const abortMapRef = useRef<Map<string, AbortController>>(new Map());
 
-  const cancel = useCallback(() => {
-    if (!loading) return;
-    cancelledRef.current = true;
-    abortRef.current?.abort();
-    toast.info(getErrorMessage("CLIENT_CANCELLED"));
-  }, [loading]);
+  // loading 派生：只要有非终态任务即为 true
+  const loading = useMemo(
+    () =>
+      tasks.some((t) => t.status === "submitting" || t.status === "polling"),
+    [tasks]
+  );
+
+  /** 更新指定任务（按 id 合并 patch） */
+  const updateTask = useCallback((id: string, patch: Partial<GenTask>) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+    );
+  }, []);
+
+  /** 标记终态并安排淡出移除（仅 UI 层，results 不受影响） */
+  const markTerminal = useCallback((id: string, patch: Partial<GenTask>) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+    );
+    setTimeout(() => {
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    }, TERMINAL_FADE_MS);
+  }, []);
+
+  /** 取消单个任务：abort 其 controller，runTask 会 catch 并标记 cancelled */
+  const cancelTask = useCallback((id: string) => {
+    abortMapRef.current.get(id)?.abort();
+  }, []);
 
   const handleGenerate = useCallback(async () => {
-    // 每次调用都从 ref 读取最新的 apiKey（避免闭包陷阱）
     const apiKey = apiKeyRef.current;
     if (!prompt.trim()) {
       setError(getErrorMessage("REQ_MISSING_PROMPT"));
@@ -205,206 +220,236 @@ export function useImageGeneration(
       toast.error(msg);
       return;
     }
+    setError(null);
 
     const referencedImages = resolveReferencedImages(prompt, referenceImages);
+    const trimmedPrompt = prompt.trim();
+    const batchId = genId("batch");
 
-    setLoading(true);
-    setError(null);
-    setResults([]);
-    setPollProgress(0);
-    setPollElapsedSec(0);
-    cancelledRef.current = false;
+    // 批次级 cacheKey（不含 n，每个任务恒 n=1）
+    const cacheKey = await buildCacheKey({
+      prompt: trimmedPrompt,
+      model,
+      size,
+      quality,
+      referenceImages: referencedImages,
+    });
 
-    const abortController = new AbortController();
-    abortRef.current = abortController;
-    let inFlightId: string | null = null;
-    let cancelled = false;
-
-    try {
-      // 1. 软缓存
-      const cacheKey = await buildCacheKey({
-        prompt: prompt.trim(),
+    // 批次级 in-flight 抢占：跨批次同参数去重（AC5）
+    const claim = await claimInFlight(cacheKey, trimmedPrompt.slice(0, 60));
+    if (claim.result === "busy") {
+      const ageSec = Math.max(
+        1,
+        Math.round((Date.now() - claim.existing.startedAt) / 1000)
+      );
+      toast.warning(getErrorMessage("CLIENT_INFLIGHT"), {
+        description: `${ageSec}s 前已发起相同任务，请等待完成`,
+      });
+      // 创建 N 个 cancelled 任务作为 UI 反馈（不发上游）
+      const cancelledTasks: GenTask[] = Array.from({ length: n }, (_, i) => ({
+        id: genId("task"),
+        batchId,
+        slot: i,
+        prompt: trimmedPrompt,
         model,
         size,
         quality,
-        referenceImages: referencedImages,
+        status: "cancelled" as const,
+        progress: 0,
+        elapsedSec: 0,
+        createdAt: Date.now(),
+      }));
+      setTasks((prev) => [...prev, ...cancelledTasks]);
+      cancelledTasks.forEach((t) => {
+        setTimeout(
+          () => setTasks((prev) => prev.filter((x) => x.id !== t.id)),
+          TERMINAL_FADE_MS
+        );
       });
+      return;
+    }
+    const inFlightId = claim.entry.id;
+
+    // 解码参考图一次，N 个任务共享
+    const refBlobs: Blob[] = [];
+    for (const img of referencedImages) {
+      const r = await fetch(img.base64);
+      refBlobs.push(await r.blob());
+    }
+
+    // 创建 N 个 submitting 任务
+    const newTasks: GenTask[] = Array.from({ length: n }, (_, i) => ({
+      id: genId("task"),
+      batchId,
+      slot: i,
+      prompt: trimmedPrompt,
+      model,
+      size,
+      quality,
+      status: "submitting" as const,
+      progress: 0,
+      elapsedSec: 0,
+      createdAt: Date.now(),
+    }));
+    setTasks((prev) => [...prev, ...newTasks]);
+
+    // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
+    const batchResults: GenerateResult[] = [];
+
+    /**
+     * 单任务流程：缓存命中 → success；否则 POST + 轮询 → success/failed/cancelled。
+     * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
+     */
+    const runTask = async (task: GenTask): Promise<void> => {
+      // 1. 60s 缓存命中（AC4）
       const cached = await getPromptCache(cacheKey);
       if (cached) {
-        const ageSec = Math.max(
-          1,
-          Math.round((Date.now() - cached.createdAt) / 1000)
-        );
-        toast.success(`复用 ${ageSec}s 前的结果`, {
-          description: "相同提示词 + 参数命中 60s 软缓存",
-        });
-        setResults(cached.results);
-        saveSettings({ defaultModel: model, defaultSize: size, defaultQuality: quality });
+        const result = cached.results[task.slot % cached.results.length];
+        batchResults.push(result);
+        markTerminal(task.id, { status: "success", result, progress: 1 });
+        setResults((prev) => [...prev, result]);
         return;
       }
 
-      // 2. 原子抢占 in-flight（readwrite transaction 内"检查+插入"）
-      //    多标签页/快速连点/StrictMode 第二次调用都只能有一个赢家
-      const claim = await claimInFlight(
-        cacheKey,
-        prompt.trim().slice(0, 60)
-      );
-      if (claim.result === "busy") {
-        const ageSec = Math.max(
-          1,
-          Math.round((Date.now() - claim.existing.startedAt) / 1000)
-        );
-        toast.warning(getErrorMessage("CLIENT_INFLIGHT"), {
-          description: `${ageSec}s 前发起，请等待当前任务完成`,
+      // 2. 独立 AbortController
+      const controller = new AbortController();
+      abortMapRef.current.set(task.id, controller);
+
+      try {
+        const headers = buildApiHeaders({ apiKey, baseUrl, proxyUrl });
+        const formData = new FormData();
+        formData.append("prompt", trimmedPrompt);
+        formData.append("model", model);
+        formData.append("size", size);
+        formData.append("quality", quality);
+        // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
+        formData.append("n", "1");
+        for (const blob of refBlobs) {
+          formData.append("images", blob, `input_${task.slot}.png`);
+        }
+
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers,
+          body: formData,
+          signal: controller.signal,
         });
-        return;
-      }
-      inFlightId = claim.entry.id;
-      inFlightIdRef.current = inFlightId;
+        if (!response.ok) {
+          throw await toApiError(response, "GEN_UPSTREAM_FAILED");
+        }
 
-      // 3. 提交生成请求
-      const formData = new FormData();
-      formData.append("prompt", prompt.trim());
-      formData.append("model", model);
-      formData.append("size", size);
-      formData.append("quality", quality);
-      formData.append("n", "1");
-      for (const img of referencedImages) {
-        const response = await fetch(img.base64);
-        const blob = await response.blob();
-        formData.append("images", blob, img.name);
-      }
+        const contentType = response.headers.get("content-type") || "";
+        let data: {
+          task_id?: string;
+          images?: Array<{ b64_json: string; mime: string }>;
+          error?: string;
+        };
+        if (contentType.includes("application/json")) {
+          data = await response.json();
+        } else {
+          const text = await response.text();
+          throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", text.slice(0, 200));
+        }
 
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: buildApiHeaders({ apiKey, baseUrl, proxyUrl }),
-        body: formData,
-        signal: abortController.signal,
-      });
+        let result: GenerateResult;
 
-      if (!response.ok) {
-        throw await toApiError(response, "GEN_UPSTREAM_FAILED");
-      }
-
-      const contentType = response.headers.get("content-type") || "";
-      let data: {
-        task_id?: string;
-        images?: Array<{ b64_json: string; mime: string }>;
-        error?: string;
-      };
-      if (contentType.includes("application/json")) {
-        data = await response.json();
-      } else {
-        const text = await response.text();
-        throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", text.slice(0, 200));
-      }
-
-      // 4. 轮询或直接拿结果
-      let newResults: GenerateResult[] = [];
-      if (data.task_id) {
-        const taskId = data.task_id;
-        await updateInFlightStatus(inFlightId, { status: "polling", taskId });
-        const pollResult = await pollTaskResult(
-          taskId,
-          buildApiHeaders({ apiKey, baseUrl, proxyUrl }),
-          abortController.signal,
-          (p, elapsed) => {
-            setPollProgress(p);
-            setPollElapsedSec(elapsed);
-          }
-        );
-        newResults = [
-          {
-            id: `gen-${Date.now()}-0`,
+        // 异步分支：提交成功 → 轮询
+        if (data.task_id) {
+          updateTask(task.id, { status: "polling", taskId: data.task_id });
+          await updateInFlightStatus(inFlightId, { status: "polling" });
+          const pollResult = await pollTaskResult(
+            data.task_id,
+            headers,
+            controller.signal,
+            (p, elapsed) => {
+              updateTask(task.id, { progress: p, elapsedSec: elapsed });
+            }
+          );
+          result = {
+            id: `gen-${Date.now()}-${task.slot}`,
             b64_json: pollResult.b64,
             imageUrl: pollResult.imageUrl,
             mime: pollResult.mime,
-            prompt: prompt.trim(),
+            prompt: trimmedPrompt,
             model,
             size,
             createdAt: Date.now(),
-          },
-        ];
-      } else {
-        // 同步接口返回的图片仍为 base64，转换为 blob URL 以保持一致体验
-        newResults = await Promise.all(
-          (data.images || []).map(
-            async (img: { b64_json: string; mime: string }, i: number) => {
-              const blob = await base64ToBlob(img.b64_json, img.mime);
-              return {
-                id: `gen-${Date.now()}-${i}`,
-                b64_json: img.b64_json,
-                imageUrl: URL.createObjectURL(blob),
-                mime: img.mime,
-                prompt: prompt.trim(),
-                model,
-                size,
-                createdAt: Date.now(),
-              };
-            }
-          )
-        );
+          };
+        } else if (data.images?.length) {
+          // 同步分支：直接返回 base64 图片（转 blob: URL）
+          const img = data.images[0];
+          const blob = await base64ToBlob(img.b64_json, img.mime);
+          result = {
+            id: `gen-${Date.now()}-${task.slot}`,
+            b64_json: img.b64_json,
+            imageUrl: URL.createObjectURL(blob),
+            mime: img.mime,
+            prompt: trimmedPrompt,
+            model,
+            size,
+            createdAt: Date.now(),
+          };
+        } else {
+          throw new ApiError("GEN_UPSTREAM_NO_TASK_ID");
+        }
+
+        batchResults.push(result);
+        markTerminal(task.id, { status: "success", result, progress: 1 });
+        setResults((prev) => [...prev, result]);
+      } catch (err) {
+        const isAbort =
+          (err instanceof DOMException && err.name === "AbortError") ||
+          (err instanceof Error && err.name === "AbortError");
+        if (isAbort) {
+          markTerminal(task.id, { status: "cancelled" });
+        } else {
+          const msg =
+            err instanceof ApiError
+              ? err.message
+              : err instanceof Error
+              ? err.message
+              : getErrorMessage("UNKNOWN");
+          markTerminal(task.id, { status: "failed", error: msg });
+          toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
+        }
+      } finally {
+        abortMapRef.current.delete(task.id);
       }
+    };
 
-      if (cancelledRef.current) {
-        return;
-      }
+    // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
+    await Promise.allSettled(newTasks.map((t) => runTask(t)));
 
-      setResults(newResults);
-      setPromptCache(cacheKey, newResults, CACHE_TTL_MS).catch(() => {});
-
-      // 5. 写历史
+    // 4. 汇总：成功项写缓存/历史；释放 in-flight
+    if (batchResults.length > 0) {
+      setPromptCache(cacheKey, batchResults, CACHE_TTL_MS).catch(() => {});
       const record: HistoryRecord = {
-        id: `hist-${Date.now()}`,
-        params: {
-          prompt: prompt.trim(),
-          model,
-          size,
-          quality,
-        },
-        results: newResults,
+        id: genId("hist"),
+        params: { prompt: trimmedPrompt, model, size, quality, n },
+        results: batchResults,
         createdAt: Date.now(),
       };
-      await addHistory(record);
-      saveSettings({ defaultModel: model, defaultSize: size, defaultQuality: quality });
-      await releaseInFlight(inFlightId);
-      inFlightId = null;
-      inFlightIdRef.current = null;
-    } catch (err) {
-      // 主动取消
-      if (
-        (err instanceof DOMException && err.name === "AbortError") ||
-        (err instanceof Error && err.name === "AbortError")
-      ) {
-        cancelled = true;
-        if (inFlightId) {
-          await updateInFlightStatus(inFlightId, { status: "cancelled" });
-        }
-        return;
-      }
-      // ApiError - 直接使用 i18n 文案
-      if (err instanceof ApiError) {
-        setError(err.message);
-        toast.error("生成失败", { description: err.message });
-      } else {
-        const message = err instanceof Error ? err.message : getErrorMessage("UNKNOWN");
-        setError(message);
-        toast.error("生成失败", { description: message });
-      }
-      if (inFlightId) {
-        await updateInFlightStatus(inFlightId, { status: "failed" });
-      }
-    } finally {
-      setLoading(false);
-      setPollProgress(0);
-      setPollElapsedSec(0);
-      abortRef.current = null;
-      inFlightIdRef.current = null;
-      if (inFlightId && !cancelled) {
-        releaseInFlight(inFlightId).catch(() => {});
-      }
+      addHistory(record).catch(() => {});
+      saveSettings({
+        defaultModel: model,
+        defaultSize: size,
+        defaultQuality: quality,
+        defaultN: n,
+      });
     }
-  }, [prompt, referenceImages, model, size, quality, baseUrl, proxyUrl]);
+    releaseInFlight(inFlightId).catch(() => {});
+  }, [
+    prompt,
+    referenceImages,
+    model,
+    size,
+    quality,
+    n,
+    baseUrl,
+    proxyUrl,
+    updateTask,
+    markTerminal,
+  ]);
 
   // 释放所有 blob: URL（在 results 替换/清空前）
   const revokeAllBlobUrls = (list: GenerateResult[]) => {
@@ -427,10 +472,9 @@ export function useImageGeneration(
     results,
     loading,
     error,
-    pollProgress,
-    pollElapsedSec,
+    tasks,
     handleGenerate,
-    cancel,
+    cancelTask,
     setResults: revokeAwareSetResults(revokeAllBlobUrls, setResults),
   };
 }
@@ -454,23 +498,18 @@ function revokeAwareSetResults(
   };
 }
 
-/**
- * 轮询任务直到完成 / 失败 / 超时 / 取消
- * - 使用指数退避：1s → 2s → 4s → 8s → 10s（上限）
- * - onProgress(0~1, 已等待秒数) 实时反馈 UI
- * - 支持 AbortSignal 立即中断
- *
- * 返回值：
- *  - imageUrl: blob: URL（当前会话高效显示用）
- *  - b64: base64 数据（持久化到 IndexedDB 用）
- *  - mime: 图像 mime
- */
 interface PollResult {
   imageUrl: string;
   b64: string;
   mime: string;
 }
 
+/**
+ * 轮询任务直到完成 / 失败 / 超时 / 取消
+ * - 使用指数退避：1s → 2s → 4s → 8s → 10s（上限）
+ * - onProgress(0~1, 已等待秒数) 实时反馈 UI
+ * - 支持 AbortSignal 立即中断
+ */
 async function pollTaskResult(
   taskId: string,
   headers: Record<string, string>,
@@ -517,7 +556,8 @@ async function pollTaskResult(
       if (!imgRes.ok) {
         throw await toApiError(imgRes, "TASK_DOWNLOAD_FAILED");
       }
-      const mime = imgRes.headers.get("content-type") || taskData.mime || "image/png";
+      const mime =
+        imgRes.headers.get("content-type") || taskData.mime || "image/png";
       const blob = await imgRes.blob();
       const imageUrl = URL.createObjectURL(blob);
       const arrayBuf = await blob.arrayBuffer();
@@ -535,7 +575,6 @@ async function pollTaskResult(
 
 /**
  * ArrayBuffer → base64 字符串（用于 IndexedDB 持久化）
- * 使用一次 buffer 复用，避免大字符串拼接
  */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);

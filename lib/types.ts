@@ -1,4 +1,4 @@
-﻿export type AspectRatio = "auto" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+export type AspectRatio = "auto" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
 export type ModelId = "gpt-image-2" | string;
 
@@ -40,6 +40,45 @@ export interface AppSettings {
   defaultSize: AspectRatio;
   defaultQuality: "1k" | "2k" | "4k";
   proxyUrl?: string;
+  /** 默认单次生成图片数量（1~4），未配置时按 1 处理（向后兼容） */
+  defaultN?: 1 | 2 | 3 | 4;
+}
+
+/**
+ * 单个图像生成任务（任务级状态模型）
+ *
+ * 一次"生成"点击创建 N 个独立 GenTask（每个上游 n=1），并发执行。
+ * 每个任务独立追踪状态/进度/取消，是 UI 进度列表与取消按钮的唯一数据源。
+ * 跨批次并发：多次点击产生多批任务，共存于 tasks[]，互不阻塞。
+ */
+export type GenTaskStatus =
+  | "submitting" // 已创建，正在 POST /api/generate
+  | "polling" // 已拿到 task_id，指数退避轮询中
+  | "success" // 成功，result 已就绪
+  | "failed" // 上游/轮询/下载失败
+  | "cancelled"; // 用户主动取消
+
+export interface GenTask {
+  /** 任务唯一 id，格式 task-{ts}-{rand} */
+  id: string;
+  /** 同一次"生成"点击的任务共享，仅用于 UI 分组展示 */
+  batchId: string;
+  /** 槽位序号（仅用于该批次内显示 #1/#2…），不影响逻辑 */
+  slot: number;
+  prompt: string;
+  model: string;
+  size: string;
+  quality: string;
+  status: GenTaskStatus;
+  /** 进度 0~1（polling 阶段有意义，success 后置 1） */
+  progress: number;
+  /** 已轮询秒数 */
+  elapsedSec: number;
+  result?: GenerateResult;
+  error?: string;
+  /** 上游异步任务 id（submitting 完成后存在） */
+  taskId?: string;
+  createdAt: number;
 }
 
 export interface ModelInfo {
