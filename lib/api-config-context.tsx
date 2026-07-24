@@ -93,16 +93,18 @@ export interface ApiConfigProviderProps {
 }
 
 export function ApiConfigProvider({ children }: ApiConfigProviderProps) {
-  // 初始值：从 localStorage 同步读取（仅在客户端首次渲染时执行一次）
-  // 说明：这是「从外部系统（localStorage）初始化 state」的标准模式，
-  //      React 官方文档明确允许 useState 的 lazy init 函数从 localStorage 读。
-  const [value, setValue] = useState(() => ({
-    apiKey: readStorage(API_KEY_STORAGE_KEY),
-    baseUrl: readStorage(BASE_URL_STORAGE_KEY),
-    proxyUrl: readStorage(PROXY_URL_STORAGE_KEY),
-  }));
+  // 初始值固定为空字符串：服务端和客户端首次渲染都返回空值，保证 hydration 一致。
+  // 说明：之前使用 useState lazy init 在客户端首次渲染时同步读取 localStorage，
+  //      导致服务端（空）与客户端（localStorage 实际值）不一致，触发 hydration mismatch。
+  //      现在改为：初始空值 → 挂载后 useEffect 读取 localStorage 并 setValue，
+  //      这是 React 官方推荐的「从外部系统初始化 state」的 SSR 安全模式。
+  const [value, setValue] = useState<{ apiKey: string; baseUrl: string; proxyUrl: string }>({
+    apiKey: "",
+    baseUrl: "",
+    proxyUrl: "",
+  });
 
-  // 订阅 'storage' 事件（跨标签页）+ 自定义事件（同标签页多组件）
+  // 挂载后读取 localStorage（首次同步） + 订阅后续变化
   useEffect(() => {
     const refresh = () => {
       setValue({
@@ -111,6 +113,9 @@ export function ApiConfigProvider({ children }: ApiConfigProviderProps) {
         proxyUrl: readStorage(PROXY_URL_STORAGE_KEY),
       });
     };
+
+    // 首次挂载时立即读取一次，把 localStorage 的真实值同步到 state
+    refresh();
 
     const handleStorage = (e: StorageEvent) => {
       // 只关心我们关心的 key
