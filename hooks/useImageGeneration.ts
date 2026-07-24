@@ -179,6 +179,15 @@ export function useImageGeneration(
   // 每个任务一个 AbortController，支持单张级取消
   const abortMapRef = useRef<Map<string, AbortController>>(new Map());
 
+  // 跟踪最新 results，供卸载时释放。
+  // 卸载 effect 依赖数组为 []，若直接闭包捕获 results 会拿到首次渲染的空数组，
+  // 导致卸载时什么都没释放；用 ref 同步最新值可规避该陈旧闭包问题。
+  // 注意：ref.current 不能在 render 阶段赋值（react-hooks/refs），故用 effect 同步。
+  const resultsRef = useRef<GenerateResult[]>([]);
+  useEffect(() => {
+    resultsRef.current = results;
+  });
+
   // loading 派生：只要有非终态任务即为 true
   const loading = useMemo(
     () =>
@@ -304,7 +313,17 @@ export function useImageGeneration(
       // 1. 60s 缓存命中（AC4）
       const cached = await getPromptCache(cacheKey);
       if (cached) {
-        const result = cached.results[task.slot % cached.results.length];
+        const src = cached.results[task.slot % cached.results.length];
+        // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
+        //  - 新 imageUrl（blob:）：缓存里的 imageUrl 是上次会话的 blob URL，可能已失效
+        //  - 新 id：cacheKey 不含 n，n 不同时取模会复用同一缓存对象，
+        //    复用会导致相同 result.id 与已存在 results 项造成 React key 冲突
+        const blob = await base64ToBlob(src.b64_json, src.mime);
+        const result: GenerateResult = {
+          ...src,
+          id: `gen-${Date.now()}-${task.slot}`,
+          imageUrl: URL.createObjectURL(blob),
+        };
         batchResults.push(result);
         markTerminal(task.id, { status: "success", result, progress: 1 });
         setResults((prev) => [...prev, result]);
@@ -460,12 +479,17 @@ export function useImageGeneration(
     });
   };
 
-  // 组件卸载时释放所有 blob URL，避免内存泄漏
+  // 组件卸载时：abort 所有进行中任务 + 释放当前 blob URL，避免内存泄漏与卸载后状态更新
   useEffect(() => {
     return () => {
-      revokeAllBlobUrls(results);
+      // cleanup 需读取"卸载那一刻"的最新 abort map 与 results，
+      // 这正是 ref 作为可变容器的合法用途，无法在挂载时拷贝，故直接读 ref.current
+      /* eslint-disable react-hooks/exhaustive-deps */
+      abortMapRef.current.forEach((c) => c.abort());
+      abortMapRef.current.clear();
+      revokeAllBlobUrls(resultsRef.current);
+      /* eslint-enable react-hooks/exhaustive-deps */
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {
@@ -489,9 +513,12 @@ function revokeAwareSetResults(
   return (updater) => {
     setResults((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // 仅在新旧数据不同时释放（避免重复 revoke）
       if (next !== prev) {
-        revoke(prev);
+        // diff 式释放：仅释放 prev 中已不在 next 的项。
+        //  - 追加场景（next = [...prev, result]）：prev 的项都还在 next，不释放，避免误删旧 blob URL 导致裂图
+        //  - 替换场景（历史回填/清空）：prev 的项都不在 next，全部释放
+        const nextSet = new Set(next);
+        revoke(prev.filter((r) => !nextSet.has(r)));
       }
       return next;
     });
