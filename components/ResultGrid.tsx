@@ -11,6 +11,37 @@ interface ResultGridProps {
   hasRunning?: boolean;
 }
 
+/**
+ * 图片加载占位组件：默认透明，onLoad 后 fade-in 显形。
+ * 容器需自带 bg-muted 作占位底色，避免大图白屏闪烁（§7 loading-states / §3 content-jumping）。
+ * alt 填提示词摘要，供屏幕阅读器与图片加载失败时兜底（§1 alt-text）。
+ */
+function FadeInImage({
+  src,
+  alt,
+  className,
+  style,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onLoad={() => setLoaded(true)}
+      style={style}
+      className={`${className} transition-opacity duration-300 ${
+        loaded ? "opacity-100" : "opacity-0"
+      }`}
+    />
+  );
+}
+
 export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -96,9 +127,9 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               setZoom(1);
             }}
           >
-            <img
+            <FadeInImage
               src={getImageSrc(result)}
-              alt=""
+              alt={result.prompt}
               className="w-full h-full object-cover transition-slow group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -207,9 +238,9 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
           </div>
 
           <div className="flex items-center justify-center p-4 overflow-auto max-h-[70vh]">
-            <img
+            <FadeInImage
               src={getImageSrc(results[expandedIndex])}
-              alt=""
+              alt={results[expandedIndex].prompt}
               className="transition-slow"
               style={{
                 transform: `scale(${zoom})`,

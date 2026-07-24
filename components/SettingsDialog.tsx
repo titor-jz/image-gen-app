@@ -116,10 +116,11 @@ export function SettingsDialog() {
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">
+            <label htmlFor="settings-base-url" className="text-sm text-muted-foreground mb-1.5 block">
               API Base URL
             </label>
             <Input
+              id="settings-base-url"
               placeholder="https://api.openai.com/v1"
               value={baseUrlInput}
               onChange={(e) => {
@@ -133,10 +134,11 @@ export function SettingsDialog() {
             </p>
           </div>
           <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">
+            <label htmlFor="settings-api-key" className="text-sm text-muted-foreground mb-1.5 block">
               API Key
             </label>
             <Input
+              id="settings-api-key"
               type="password"
               placeholder="sk-..."
               value={inputValue}
@@ -148,10 +150,11 @@ export function SettingsDialog() {
             />
           </div>
           <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">
+            <label htmlFor="settings-proxy-url" className="text-sm text-muted-foreground mb-1.5 block">
               代理地址（可选）
             </label>
             <Input
+              id="settings-proxy-url"
               placeholder="http://127.0.0.1:7890"
               value={proxyUrlInput}
               onChange={(e) => {

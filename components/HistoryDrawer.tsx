@@ -36,7 +36,7 @@ function HistoryItem({ record, onClick }: {
     >
       <div className="w-11 h-11 rounded-md bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 ring-1 ring-border/50">
         {firstResult?.b64_json ? (
-          <img src={`data:${firstResult.mime};base64,${firstResult.b64_json}`} alt="" className="w-full h-full object-cover transition-slow group-hover:scale-105" />
+          <img src={`data:${firstResult.mime};base64,${firstResult.b64_json}`} alt={record.params.prompt} className="w-full h-full object-cover transition-slow group-hover:scale-105" />
         ) : (
           <ImageIcon className="w-5 h-5 text-muted-foreground" />
         )}

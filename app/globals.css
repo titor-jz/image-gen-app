@@ -120,18 +120,6 @@
   --sidebar-ring: oklch(0.65 0.22 260);
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
-}
-
 @layer utilities {
   .glass {
     @apply bg-card/80 backdrop-blur-xl border border-border/50;
