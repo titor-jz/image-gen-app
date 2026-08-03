@@ -131,6 +131,12 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
     renderItems.push({ type: "single", result: r, index: i });
   });
 
+  // 展开预览:点击已展开项可关闭(toggle)
+  const handleExpand = (i: number) => {
+    setExpandedIndex(expandedIndex === i ? null : i);
+    setZoom(1);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -161,20 +167,14 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                   <ResultCard
                     result={item.a}
                     index={item.indexA}
-                    onExpand={(i) => {
-                      setExpandedIndex(i);
-                      setZoom(1);
-                    }}
+                    onExpand={handleExpand}
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                   />
                   <ResultCard
                     result={item.b}
                     index={item.indexB}
-                    onExpand={(i) => {
-                      setExpandedIndex(i);
-                      setZoom(1);
-                    }}
+                    onExpand={handleExpand}
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                   />
@@ -187,10 +187,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               key={item.result.id}
               result={item.result}
               index={item.index}
-              onExpand={(i) => {
-                setExpandedIndex(i);
-                setZoom(1);
-              }}
+              onExpand={handleExpand}
               onDownload={handleDownload}
               getImageSrc={getImageSrc}
             />
