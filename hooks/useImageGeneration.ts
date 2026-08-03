@@ -56,6 +56,10 @@ export interface UseImageGenerationOptions {
   quality: Quality;
   /** 单次点击并发生成的图片数量（1~4），由 UI 数量选择器驱动 */
   n: 1 | 2 | 3 | 4;
+  /** 对比模式开关:开启时用 model + modelB 各出1张 */
+  compareMode?: boolean;
+  /** 对比模式下的第二个模型(compareMode=true 时生效) */
+  modelB?: ModelId;
 }
 
 export interface UseImageGenerationResult {
@@ -163,7 +167,7 @@ async function toApiError(
 export function useImageGeneration(
   options: UseImageGenerationOptions
 ): UseImageGenerationResult {
-  const { prompt, referenceImages, model, size, quality, n } = options;
+  const { prompt, referenceImages, model, size, quality, n, compareMode, modelB } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
   const { apiKey: apiKeyFromCtx, baseUrl, proxyUrl } = useApiConfig();
@@ -235,14 +239,25 @@ export function useImageGeneration(
     const trimmedPrompt = prompt.trim();
     const batchId = genId("batch");
 
+    // 对比模式:2 个任务各用不同模型,共享 batchId + compareGroup
+    const isCompare = compareMode && modelB && modelB !== model;
+    const compareGroup = isCompare ? batchId : undefined;
+    // 对比模式固定 2 任务(每模型1张),非对比走原 n
+    const taskCount = isCompare ? 2 : n;
+
+    // cacheKey 按模型维度:对比模式两个任务各自独立 key
+    const buildKeyForModel = async (m: string) =>
+      buildCacheKey({
+        prompt: trimmedPrompt,
+        model: m,
+        size,
+        quality,
+        referenceImages: referencedImages,
+      });
+
     // 批次级 cacheKey（不含 n，每个任务恒 n=1）
-    const cacheKey = await buildCacheKey({
-      prompt: trimmedPrompt,
-      model,
-      size,
-      quality,
-      referenceImages: referencedImages,
-    });
+    // 单模型即本批所有任务的 key;对比模式以 model 的 key 代表本批次做 in-flight claim
+    const cacheKey = await buildKeyForModel(model);
 
     // 批次级 in-flight 抢占：跨批次同参数去重（AC5）
     const claim = await claimInFlight(cacheKey, trimmedPrompt.slice(0, 60));
@@ -254,19 +269,21 @@ export function useImageGeneration(
       toast.warning(getErrorMessage("CLIENT_INFLIGHT"), {
         description: `${ageSec}s 前已发起相同任务，请等待完成`,
       });
-      // 创建 N 个 cancelled 任务作为 UI 反馈（不发上游）
-      const cancelledTasks: GenTask[] = Array.from({ length: n }, (_, i) => ({
+      // 创建 taskCount 个 cancelled 任务作为 UI 反馈（不发上游）
+      // 对比模式:任务0用 model,任务1用 modelB;非对比:全部用 model
+      const cancelledTasks: GenTask[] = Array.from({ length: taskCount }, (_, i) => ({
         id: genId("task"),
         batchId,
         slot: i,
         prompt: trimmedPrompt,
-        model,
+        model: isCompare ? (i === 0 ? model : (modelB as string)) : model,
         size,
         quality,
         status: "cancelled" as const,
         progress: 0,
         elapsedSec: 0,
         createdAt: Date.now(),
+        compareGroup,
       }));
       setTasks((prev) => [...prev, ...cancelledTasks]);
       cancelledTasks.forEach((t) => {
@@ -286,19 +303,21 @@ export function useImageGeneration(
       refBlobs.push(await r.blob());
     }
 
-    // 创建 N 个 submitting 任务
-    const newTasks: GenTask[] = Array.from({ length: n }, (_, i) => ({
+    // 创建 taskCount 个 submitting 任务
+    // 对比模式:任务0用 model,任务1用 modelB;非对比:全部用 model
+    const newTasks: GenTask[] = Array.from({ length: taskCount }, (_, i) => ({
       id: genId("task"),
       batchId,
       slot: i,
       prompt: trimmedPrompt,
-      model,
+      model: isCompare ? (i === 0 ? model : (modelB as string)) : model,
       size,
       quality,
       status: "submitting" as const,
       progress: 0,
       elapsedSec: 0,
       createdAt: Date.now(),
+      compareGroup,
     }));
     setTasks((prev) => [...prev, ...newTasks]);
 
@@ -310,8 +329,8 @@ export function useImageGeneration(
      * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
      */
     const runTask = async (task: GenTask): Promise<void> => {
-      // 1. 60s 缓存命中（AC4）
-      const cached = await getPromptCache(cacheKey);
+      // 1. 60s 缓存命中（AC4）—— 按任务自身 model 查缓存(对比模式两模型各自独立 key)
+      const cached = await getPromptCache(await buildKeyForModel(task.model));
       if (cached) {
         const src = cached.results[task.slot % cached.results.length];
         // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
@@ -323,6 +342,7 @@ export function useImageGeneration(
           ...src,
           id: `gen-${Date.now()}-${task.slot}`,
           imageUrl: URL.createObjectURL(blob),
+          compareGroup,
         };
         batchResults.push(result);
         markTerminal(task.id, { status: "success", result, progress: 1 });
@@ -338,7 +358,8 @@ export function useImageGeneration(
         const headers = buildApiHeaders({ apiKey, baseUrl, proxyUrl });
         const formData = new FormData();
         formData.append("prompt", trimmedPrompt);
-        formData.append("model", model);
+        // 对比模式任务1 用 modelB;用 task.model 而非闭包 model,单模型时两者相等
+        formData.append("model", task.model);
         formData.append("size", size);
         formData.append("quality", quality);
         // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
@@ -390,8 +411,9 @@ export function useImageGeneration(
             imageUrl: pollResult.imageUrl,
             mime: pollResult.mime,
             prompt: trimmedPrompt,
-            model,
+            model: task.model,
             size,
+            compareGroup,
             createdAt: Date.now(),
           };
         } else if (data.images?.length) {
@@ -404,8 +426,9 @@ export function useImageGeneration(
             imageUrl: URL.createObjectURL(blob),
             mime: img.mime,
             prompt: trimmedPrompt,
-            model,
+            model: task.model,
             size,
+            compareGroup,
             createdAt: Date.now(),
           };
         } else {
@@ -441,7 +464,17 @@ export function useImageGeneration(
 
     // 4. 汇总：成功项写缓存/历史；释放 in-flight
     if (batchResults.length > 0) {
-      setPromptCache(cacheKey, batchResults, CACHE_TTL_MS).catch(() => {});
+      // 按 model 分组写缓存:对比模式两模型各自独立 key,单模型行为不变
+      const byModel = new Map<string, GenerateResult[]>();
+      for (const r of batchResults) {
+        const arr = byModel.get(r.model) ?? [];
+        arr.push(r);
+        byModel.set(r.model, arr);
+      }
+      for (const [, list] of byModel) {
+        const key = await buildKeyForModel(list[0].model);
+        setPromptCache(key, list, CACHE_TTL_MS).catch(() => {});
+      }
       const record: HistoryRecord = {
         id: genId("hist"),
         params: { prompt: trimmedPrompt, model, size, quality, n },
@@ -464,6 +497,8 @@ export function useImageGeneration(
     size,
     quality,
     n,
+    compareMode,
+    modelB,
     baseUrl,
     proxyUrl,
     updateTask,
