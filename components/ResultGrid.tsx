@@ -132,7 +132,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               alt={result.prompt}
               className="w-full h-full object-cover transition-slow group-hover:scale-105"
             />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center opacity-0 group-hover:opacity-100">
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
               <Button
                 variant="secondary"
                 size="icon"

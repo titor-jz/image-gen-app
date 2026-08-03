@@ -28,6 +28,12 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
+      // 主题属性（dark class / data-theme）天然会在 SSR/CSR 间不一致：
+      //  - Header 在 useEffect 里才改 classList（hydration 之后）
+      //  - 浏览器扩展可能在 hydration 前注入 data-theme
+      // 官方做法：在 <html> 上 suppressHydrationWarning，只抑制这一层的属性差异警告，
+      // 不影响子树。否则首屏会刷 hydration mismatch 红字（不影响功能，但噪音大）。
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
