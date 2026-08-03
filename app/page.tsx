@@ -52,6 +52,9 @@ export default function Home() {
   const [selectedQuality, setSelectedQuality] = useState<Quality>("1k");
   // 单次并发生成数量（1~4），默认 1 保持向后兼容；SSR/CSR 一致由 useState 初值保证
   const [selectedN, setSelectedN] = useState<1 | 2 | 3 | 4>(1);
+  // 多模型对比模式
+  const [compareMode, setCompareMode] = useState(false);
+  const [modelB, setModelB] = useState<string>("gpt-image-2");
 
   // 2. 挂载后从 localStorage 同步用户上次的选择
   // 必须用 useEffect（而非 useState lazy init），因为 localStorage 在 SSR 时不存在，
@@ -84,6 +87,8 @@ export default function Home() {
     size: selectedSize,
     quality: selectedQuality,
     n: selectedN,
+    compareMode,
+    modelB: modelB as ModelInfo["id"],
   });
 
   // 6. 历史抽屉
@@ -148,6 +153,10 @@ export default function Home() {
               onQualityChange={setSelectedQuality}
               selectedN={selectedN}
               onNChange={setSelectedN}
+              compareMode={compareMode}
+              onCompareModeChange={setCompareMode}
+              modelB={modelB}
+              onModelBChange={setModelB}
               tasks={tasks}
               onCancelTask={cancelTask}
               onGenerate={handleGenerate}
