@@ -102,6 +102,35 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
     );
   }
 
+  // 按 compareGroup 聚合:同组两项并排成对比组,无组单独成项
+  type RenderItem =
+    | { type: "single"; result: GenerateResult; index: number }
+    | { type: "compare"; a: GenerateResult; b: GenerateResult; indexA: number; indexB: number };
+
+  const renderItems: RenderItem[] = [];
+  const consumed = new Set<number>();
+  results.forEach((r, i) => {
+    if (consumed.has(i)) return;
+    if (r.compareGroup) {
+      const pairIdx = results.findIndex(
+        (r2, j) => j > i && r2.compareGroup === r.compareGroup
+      );
+      if (pairIdx > -1) {
+        consumed.add(i);
+        consumed.add(pairIdx);
+        renderItems.push({
+          type: "compare",
+          a: r,
+          b: results[pairIdx],
+          indexA: i,
+          indexB: pairIdx,
+        });
+        return;
+      }
+    }
+    renderItems.push({ type: "single", result: r, index: i });
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -117,37 +146,56 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {results.map((result, index) => (
-          <div
-            key={result.id}
-            className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
-            style={{ animationDelay: `${index * 60}ms` }}
-            onClick={() => {
-              setExpandedIndex(expandedIndex === index ? null : index);
-              setZoom(1);
-            }}
-          >
-            <FadeInImage
-              src={getImageSrc(result)}
-              alt={result.prompt}
-              className="w-full h-full object-cover transition-slow group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-              <Button
-                variant="secondary"
-                size="icon"
-                className="press"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownload(result);
-                }}
-                aria-label="下载"
+        {renderItems.map((item) => {
+          if (item.type === "compare") {
+            // 对比组:占整行两列,顶部横幅标 A vs B
+            return (
+              <div
+                key={item.a.compareGroup}
+                className="col-span-2 space-y-1 animate-fade-up"
               >
-                <Download className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
+                <div className="text-xs text-muted-foreground px-1">
+                  模型对比 · {item.a.model} vs {item.b.model}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <ResultCard
+                    result={item.a}
+                    index={item.indexA}
+                    onExpand={(i) => {
+                      setExpandedIndex(i);
+                      setZoom(1);
+                    }}
+                    onDownload={handleDownload}
+                    getImageSrc={getImageSrc}
+                  />
+                  <ResultCard
+                    result={item.b}
+                    index={item.indexB}
+                    onExpand={(i) => {
+                      setExpandedIndex(i);
+                      setZoom(1);
+                    }}
+                    onDownload={handleDownload}
+                    getImageSrc={getImageSrc}
+                  />
+                </div>
+              </div>
+            );
+          }
+          return (
+            <ResultCard
+              key={item.result.id}
+              result={item.result}
+              index={item.index}
+              onExpand={(i) => {
+                setExpandedIndex(i);
+                setZoom(1);
+              }}
+              onDownload={handleDownload}
+              getImageSrc={getImageSrc}
+            />
+          );
+        })}
       </div>
 
       {/* 展开的完整预览 */}
@@ -250,6 +298,53 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 单张结果图卡(对比组与单项共用) */
+function ResultCard({
+  result,
+  index,
+  onExpand,
+  onDownload,
+  getImageSrc,
+}: {
+  result: GenerateResult;
+  index: number;
+  onExpand: (index: number) => void;
+  onDownload: (r: GenerateResult) => void;
+  getImageSrc: (r: GenerateResult) => string;
+}) {
+  return (
+    <div
+      className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
+      style={{ animationDelay: `${index * 60}ms` }}
+      onClick={() => onExpand(index)}
+    >
+      <FadeInImage
+        src={getImageSrc(result)}
+        alt={result.prompt}
+        className="w-full h-full object-cover transition-slow group-hover:scale-105"
+      />
+      {/* 模型名标签:hover 时显示 */}
+      <span className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 transition-base">
+        {result.model}
+      </span>
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+        <Button
+          variant="secondary"
+          size="icon"
+          className="press"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload(result);
+          }}
+          aria-label="下载"
+        >
+          <Download className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }
