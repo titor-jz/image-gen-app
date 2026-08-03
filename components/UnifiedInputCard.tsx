@@ -28,6 +28,12 @@ interface UnifiedInputCardProps {
   onQualityChange: (q: Quality) => void;
   selectedN: 1 | 2 | 3 | 4;
   onNChange: (n: 1 | 2 | 3 | 4) => void;
+  /** 对比模式开关 */
+  compareMode: boolean;
+  onCompareModeChange: (on: boolean) => void;
+  /** 对比模式第二个模型 */
+  modelB: string;
+  onModelBChange: (m: string) => void;
   /** 全部会话任务（进行中 + 终态淡出期），用于渲染进度列表 */
   tasks: GenTask[];
   /** 取消单个任务 */
@@ -162,7 +168,9 @@ function SelectChip<T extends string>({
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
   models, selectedModel, onModelChange, selectedSize, onSizeChange,
-  selectedQuality, onQualityChange, selectedN, onNChange, tasks, onCancelTask,
+  selectedQuality, onQualityChange, selectedN, onNChange,
+  compareMode, onCompareModeChange, modelB, onModelBChange,
+  tasks, onCancelTask,
   onGenerate,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -345,18 +353,36 @@ export function UnifiedInputCard({
           {/* 模型选择 */}
           <SelectChip value={selectedModel} onChange={onModelChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
 
+          {/* 对比开关 */}
+          <Button
+            variant={compareMode ? "default" : "outline"}
+            size="sm"
+            className="press transition-base"
+            onClick={() => onCompareModeChange(!compareMode)}
+            aria-pressed={compareMode}
+          >
+            对比
+          </Button>
+
+          {/* 模型 B 选择:仅对比模式显示 */}
+          {compareMode && (
+            <SelectChip value={modelB} onChange={onModelBChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
+          )}
+
           {/* 比例选择 */}
           <SelectChip value={selectedSize} onChange={onSizeChange} options={SIZES} />
 
           {/* 清晰度 */}
           <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
 
-          {/* 生成数量：第 4 个 chip，与模型/比例/清晰度并列 */}
-          <SelectChip
-            value={String(selectedN)}
-            onChange={(v) => onNChange(Number(v) as 1 | 2 | 3 | 4)}
-            options={COUNTS}
-          />
+          {/* 生成数量：第 4 个 chip,对比模式隐藏(对比固定每模型1张) */}
+          {!compareMode && (
+            <SelectChip
+              value={String(selectedN)}
+              onChange={(v) => onNChange(Number(v) as 1 | 2 | 3 | 4)}
+              options={COUNTS}
+            />
+          )}
         </div>
 
         {/* 右侧：生成按钮（常驻可用，不再因 loading 切换成取消） */}
