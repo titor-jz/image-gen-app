@@ -25,6 +25,8 @@ export interface GenerateResult {
   createdAt: number;
   cost?: number;
   favorite?: boolean;
+  /** 对比组标识:同值表示这组图是一次多模型对比产生的,用于并排分组展示。单模型生成留空 */
+  compareGroup?: string;
 }
 
 export interface HistoryRecord {
@@ -78,6 +80,8 @@ export interface GenTask {
   error?: string;
   /** 上游异步任务 id（submitting 完成后存在） */
   taskId?: string;
+  /** 对比组标识(同 GenerateResult.compareGroup),单模型任务留空 */
+  compareGroup?: string;
   createdAt: number;
 }
 
