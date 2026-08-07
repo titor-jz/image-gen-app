@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GenerateResult } from "@/lib/types";
 
@@ -90,7 +90,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-up">
         <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
-          <Heart className="w-7 h-7 text-primary" />
+          <Sparkles className="w-7 h-7 text-primary" />
         </div>
         <p className="text-base font-medium text-foreground">
           {hasRunning ? "生成中…" : "开始创作"}
@@ -151,7 +151,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {/* 单张结果居中占满,多张用 2 列 */}
+      <div className={`grid gap-3 ${results.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
         {renderItems.map((item) => {
           if (item.type === "compare") {
             // 对比组:占整行两列,顶部横幅标 A vs B
@@ -170,6 +171,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onExpand={handleExpand}
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
+                    showModelAlways
                   />
                   <ResultCard
                     result={item.b}
@@ -177,6 +179,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onExpand={handleExpand}
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
+                    showModelAlways
                   />
                 </div>
               </div>
@@ -306,12 +309,15 @@ function ResultCard({
   onExpand,
   onDownload,
   getImageSrc,
+  showModelAlways = false,
 }: {
   result: GenerateResult;
   index: number;
   onExpand: (index: number) => void;
   onDownload: (r: GenerateResult) => void;
   getImageSrc: (r: GenerateResult) => string;
+  /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
+  showModelAlways?: boolean;
 }) {
   return (
     <div
@@ -324,8 +330,12 @@ function ResultCard({
         alt={result.prompt}
         className="w-full h-full object-cover transition-slow group-hover:scale-105"
       />
-      {/* 模型名标签:hover 时显示 */}
-      <span className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 transition-base">
+      {/* 模型名标签:对比组常驻,非对比组仅 hover */}
+      <span
+        className={`absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 transition-base ${
+          showModelAlways ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      >
         {result.model}
       </span>
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">

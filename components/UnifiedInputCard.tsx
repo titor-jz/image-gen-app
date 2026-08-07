@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2 } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
 
@@ -353,20 +353,20 @@ export function UnifiedInputCard({
           {/* 模型选择 */}
           <SelectChip value={selectedModel} onChange={onModelChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
 
-          {/* 对比开关 */}
-          <Button
-            variant={compareMode ? "default" : "outline"}
-            size="sm"
-            className="press transition-base"
+          {/* 对比开关:复用 toolbar-chip 保持圆角统一,激活态用 toolbar-chip-active */}
+          <button
+            type="button"
+            className={`toolbar-chip press ${compareMode ? "toolbar-chip-active" : ""}`}
             onClick={() => onCompareModeChange(!compareMode)}
             aria-pressed={compareMode}
           >
+            <GitCompare className="w-3.5 h-3.5" />
             对比
-          </Button>
+          </button>
 
-          {/* 模型 B 选择:仅对比模式显示 */}
+          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应 */}
           {compareMode && (
-            <SelectChip value={modelB} onChange={onModelBChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
+            <SelectChip value={modelB} onChange={onModelBChange} options={models.map((m) => ({ value: m.id, label: `B: ${m.name}` }))} />
           )}
 
           {/* 比例选择 */}
@@ -412,7 +412,7 @@ export function UnifiedInputCard({
           ).map(([batchId, group]) => (
             <div
               key={batchId}
-              className="rounded-xl bg-muted/40 border border-border/40 px-3 py-2 flex flex-col gap-1.5"
+              className="rounded-xl bg-muted/60 border border-border/60 px-3 py-2 flex flex-col gap-1.5"
             >
               {group.map((slot) => {
                 const running =

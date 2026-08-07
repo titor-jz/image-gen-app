@@ -70,7 +70,8 @@ export function Header({ onShowHistory }: HeaderProps) {
   };
 
   return (
-    <header className="flex items-center justify-between px-6 py-4">
+    <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border/50">
+      <div className="flex items-center justify-between px-6 py-4 max-w-3xl mx-auto">
       <Button
         variant="ghost"
         size="sm"
@@ -102,6 +103,7 @@ export function Header({ onShowHistory }: HeaderProps) {
           </span>
         </Button>
         <SettingsDialog />
+      </div>
       </div>
     </header>
   );
