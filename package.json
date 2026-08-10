@@ -11,7 +11,10 @@
     "lint": "eslint",
     "electron:dev": "next build && cross-env NEXT_PORT=3001 electron .",
     "electron:build": "next build && electron-builder --win --x64",
-    "dist": "npm run electron:build"
+    "dist": "npm run electron:build",
+    "build:cf": "opennextjs-cloudflare build",
+    "preview:cf": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -19,7 +22,7 @@
     "clsx": "^2.1.1",
     "idb": "^8.0.3",
     "lucide-react": "^1.20.0",
-    "next": "16.2.9",
+    "next": "16.2.12",
     "next-themes": "^0.4.6",
     "openai": "^6.43.0",
     "proxy-from-env": "^2.1.0",
@@ -32,6 +35,7 @@
     "undici": "^8.5.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -40,10 +44,11 @@
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "^16.2.12",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "wait-on": "^9.0.10"
+    "wait-on": "^9.0.10",
+    "wrangler": "^4.120.0"
   },
   "build": {
     "appId": "com.ai-image-gen.app",
