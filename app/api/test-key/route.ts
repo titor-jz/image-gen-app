@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
       res = await httpFormDataRequest(
         url,
         form,
-        { Authorization: `Bearer ${apiKey}` }
+        { Authorization: `Bearer ${apiKey}` },
+        proxyUrl
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";

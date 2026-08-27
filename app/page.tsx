@@ -18,7 +18,7 @@
  * (hydration mismatch)，所以采用 useEffect 异步同步。
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
@@ -73,6 +73,12 @@ export default function Home() {
   // 3. 数据：模型列表
   const { models } = useModels();
 
+  // 模型 → 单张价格映射：ResultGrid 结果卡片显示每张图花费时使用
+  const modelPrices = useMemo(
+    () => Object.fromEntries(models.map((m) => [m.id, m.costPerImage])),
+    [models]
+  );
+
   // 4. 启动时检测未完成的任务
   useInFlightRecovery();
 
@@ -126,7 +132,7 @@ export default function Home() {
       )}
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-10 space-y-8">
+        <div className="max-w-3xl mx-auto px-6 pt-10 space-y-8">
           {/* 大标题 */}
           <div className="text-center space-y-2 animate-fade-up">
             <h1 className="text-4xl font-semibold tracking-tight text-foreground">
@@ -163,6 +169,10 @@ export default function Home() {
             />
           </div>
 
+        </div>
+
+        {/* 错误提示 + 输出图库：使用更宽容器，图片多时不会挤在窄栏里 */}
+        <div className="max-w-6xl mx-auto px-6 pt-6 pb-10 space-y-6">
           {/* 错误提示 */}
           {error && (
             <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-start gap-2">
@@ -173,7 +183,7 @@ export default function Home() {
 
           {/* 输出图库 */}
           <div className="animate-fade-up [animation-delay:120ms] input-card p-5">
-            <ResultGrid results={results} hasRunning={loading} />
+            <ResultGrid results={results} hasRunning={loading} modelPrices={modelPrices} />
           </div>
         </div>
       </main>

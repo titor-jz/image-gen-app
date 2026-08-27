@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-base-url") ||
       process.env.OPENAI_BASE_URL ||
       "https://api.openai.com/v1";
+    const proxyUrl = request.headers.get("x-proxy-url") || "";
 
     if (!apiKey) {
       const { body, status } = errorResponse("AUTH_MISSING_KEY");
@@ -99,7 +100,8 @@ export async function POST(request: NextRequest) {
       res = await httpFormDataRequest(
         url,
         form,
-        { Authorization: `Bearer ${apiKey}` }
+        { Authorization: `Bearer ${apiKey}` },
+        proxyUrl
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";

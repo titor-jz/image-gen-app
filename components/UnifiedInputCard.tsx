@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
@@ -18,7 +19,8 @@ interface UnifiedInputCardProps {
   prompt: string;
   onPromptChange: (v: string) => void;
   referenceImages: ReferenceImage[];
-  onReferenceImagesChange: (imgs: ReferenceImage[]) => void;
+  /** 支持直接传新数组或函数式更新（批量上传并发追加时必须用函数式，避免旧闭包互相覆盖） */
+  onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
   models: ModelInfo[];
   selectedModel: string;
   onModelChange: (m: string) => void;
@@ -179,8 +181,28 @@ export function UnifiedInputCard({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionPos, setMentionPos] = useState(0);
   const [selectedMentionIdx, setSelectedMentionIdx] = useState(0);
+  /** @ 弹窗用 portal + fixed 渲染，避免被卡片 overflow-hidden 裁剪 */
+  const [mentionRect, setMentionRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随
+  useEffect(() => {
+    if (!showMentions) { setMentionRect(null); return; }
+    const update = () => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const rect = ta.getBoundingClientRect();
+      setMentionRect({ top: rect.bottom + 6, left: rect.left, width: Math.max(224, rect.width) });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [showMentions]);
 
   const processFile = useCallback(async (file: File) => {
     setImgError(null);
@@ -191,7 +213,9 @@ export function UnifiedInputCard({
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
-        onReferenceImagesChange([...referenceImages, {
+        // 函数式更新:批量多张并发处理时,闭包里的 referenceImages 是旧值,
+        // 直接展开会互相覆盖,只留最后一张
+        onReferenceImagesChange((prev) => [...prev, {
           id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           name: file.name, base64: result, mimeType: mime,
         }]);
@@ -200,7 +224,7 @@ export function UnifiedInputCard({
     } catch {
       setImgError("图片处理失败");
     }
-  }, [referenceImages, onReferenceImagesChange]);
+  }, [onReferenceImagesChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -273,13 +297,20 @@ export function UnifiedInputCard({
                 className="flex flex-col items-center gap-1 animate-fade-up"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
-                <div className="relative group w-14 h-14 rounded-lg overflow-hidden border border-border/50 transition-base hover:border-border">
-                  <img src={img.base64} alt={img.name} className="w-full h-full object-cover transition-slow group-hover:scale-110" />
-                  <Button variant="ghost" size="icon"
-                    className="absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 transition-base bg-destructive text-white rounded-full press-sm"
-                    onClick={() => removeImage(img.id)} aria-label="删除">
-                    <X className="w-2.5 h-2.5" />
-                  </Button>
+                {/* 外层不裁剪，删除按钮悬浮在缩略图右上角才能完整显示 */}
+                <div className="relative group">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden border border-border/50 transition-base hover:border-border">
+                    <img src={img.base64} alt={img.name} className="w-full h-full object-cover transition-slow group-hover:scale-110" />
+                  </div>
+                  {/* 常驻显示的删除按钮：深底白叉 + 背景色描边，任何图片上都清晰可见 */}
+                  <button
+                    type="button"
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center shadow-md ring-2 ring-background press-sm transition-base hover:bg-destructive/90 hover:scale-110"
+                    onClick={() => removeImage(img.id)}
+                    aria-label={`删除 ${img.name}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
                 <span className="text-xs text-muted-foreground truncate max-w-14" title={img.name}>{img.name}</span>
               </div>
@@ -316,23 +347,27 @@ export function UnifiedInputCard({
           )}
         </div>
 
-        {/* @ 提及建议 */}
-        {showMentions && filteredMentions.length > 0 && (
-          <div className="absolute z-50 mt-1 w-56 rounded-xl border border-border bg-popover shadow-xl overflow-hidden animate-fade-up">
+        {/* @ 提及建议：portal 到 body + fixed 定位，避免被卡片 overflow-hidden 裁剪导致图片多时看不到 */}
+        {showMentions && filteredMentions.length > 0 && mentionRect && createPortal(
+          <div
+            className="fixed z-[60] rounded-xl border border-border bg-popover shadow-xl overflow-hidden animate-fade-up"
+            style={{ top: mentionRect.top, left: mentionRect.left, width: mentionRect.width }}
+          >
             <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border flex items-center gap-1.5">
-              <AtSign className="w-3 h-3" /> 选择参考图片
+              <AtSign className="w-3 h-3" /> 选择参考图片（{filteredMentions.length} 张）
             </div>
-            <div className="max-h-40 overflow-y-auto scrollbar-thin">
+            <div className="max-h-64 overflow-y-auto scrollbar-thin">
               {filteredMentions.map((img, idx) => (
                 <button key={img.id}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
                   onClick={() => insertMention(img)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
-                  <img src={img.base64} alt={img.name} className="w-7 h-7 rounded object-cover flex-shrink-0" />
+                  <img src={img.base64} alt={img.name} className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-border/50" />
                   <span className="truncate flex-1">{img.name}</span>
                 </button>
               ))}
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
@@ -350,8 +385,17 @@ export function UnifiedInputCard({
           <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(",")} multiple className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
 
-          {/* 模型选择 */}
-          <SelectChip value={selectedModel} onChange={onModelChange} options={models.map((m) => ({ value: m.id, label: m.name }))} />
+          {/* 模型选择（下拉项附价格标签，未收录价格的模型不显示） */}
+          <SelectChip
+            value={selectedModel}
+            onChange={onModelChange}
+            options={models.map((m) => ({
+              value: m.id,
+              label: m.costPerImage > 0
+                ? `${m.name} · ¥${m.costPerImage.toFixed(2)}/张`
+                : m.name,
+            }))}
+          />
 
           {/* 对比开关:复用 toolbar-chip 保持圆角统一,激活态用 toolbar-chip-active */}
           <button
@@ -364,9 +408,18 @@ export function UnifiedInputCard({
             对比
           </button>
 
-          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应 */}
+          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应(同样附价格) */}
           {compareMode && (
-            <SelectChip value={modelB} onChange={onModelBChange} options={models.map((m) => ({ value: m.id, label: `B: ${m.name}` }))} />
+            <SelectChip
+              value={modelB}
+              onChange={onModelBChange}
+              options={models.map((m) => ({
+                value: m.id,
+                label: m.costPerImage > 0
+                  ? `B: ${m.name} · ¥${m.costPerImage.toFixed(2)}/张`
+                  : `B: ${m.name}`,
+              }))}
+            />
           )}
 
           {/* 比例选择 */}

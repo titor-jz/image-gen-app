@@ -9,6 +9,8 @@ interface ResultGridProps {
   results: GenerateResult[];
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
+  /** 模型 → 单张价格（元）映射，用于结果卡片显示花费；未知模型不显示 */
+  modelPrices?: Record<string, number>;
 }
 
 /**
@@ -42,7 +44,7 @@ function FadeInImage({
   );
 }
 
-export function ResultGrid({ results, hasRunning }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -151,15 +153,23 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
         )}
       </div>
 
-      {/* 单张结果居中占满,多张用 2 列 */}
-      <div className={`grid gap-3 ${results.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+      {/* 列数随数量自适应:1 张大图居中,2~4 张 2 列,5+ 张在宽屏铺 3/4 列 */}
+      {(() => {
+        const gridCols =
+          results.length === 1
+            ? "grid-cols-1 max-w-2xl mx-auto"
+            : results.length <= 4
+              ? "grid-cols-2"
+              : "grid-cols-2 md:grid-cols-3 xl:grid-cols-4";
+        return (
+          <div className={`grid gap-3 ${gridCols}`}>
         {renderItems.map((item) => {
           if (item.type === "compare") {
             // 对比组:占整行两列,顶部横幅标 A vs B
             return (
               <div
                 key={item.a.compareGroup}
-                className="col-span-2 space-y-1 animate-fade-up"
+                className="col-span-full space-y-1 animate-fade-up"
               >
                 <div className="text-xs text-muted-foreground px-1">
                   模型对比 · {item.a.model} vs {item.b.model}
@@ -172,6 +182,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                     showModelAlways
+                    modelPrices={modelPrices}
                   />
                   <ResultCard
                     result={item.b}
@@ -180,6 +191,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                     showModelAlways
+                    modelPrices={modelPrices}
                   />
                 </div>
               </div>
@@ -193,10 +205,13 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               onExpand={handleExpand}
               onDownload={handleDownload}
               getImageSrc={getImageSrc}
+              modelPrices={modelPrices}
             />
           );
         })}
-      </div>
+          </div>
+        );
+      })()}
 
       {/* 展开的完整预览 */}
       {expandedIndex !== null && (
@@ -310,6 +325,7 @@ function ResultCard({
   onDownload,
   getImageSrc,
   showModelAlways = false,
+  modelPrices,
 }: {
   result: GenerateResult;
   index: number;
@@ -318,11 +334,15 @@ function ResultCard({
   getImageSrc: (r: GenerateResult) => string;
   /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
   showModelAlways?: boolean;
+  /** 模型 → 单张价格映射,用于标签里显示该图花费 */
+  modelPrices?: Record<string, number>;
 }) {
+  // 该模型单张价格;>0 才展示,避免给未收录模型显示"¥0.00"
+  const price = modelPrices?.[result.model];
   return (
     <div
       className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
-      style={{ animationDelay: `${index * 60}ms` }}
+      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
       onClick={() => onExpand(index)}
     >
       <FadeInImage
@@ -330,13 +350,16 @@ function ResultCard({
         alt={result.prompt}
         className="w-full h-full object-cover transition-slow group-hover:scale-105"
       />
-      {/* 模型名标签:对比组常驻,非对比组仅 hover */}
+      {/* 模型名+价格标签:对比组常驻,非对比组仅 hover */}
       <span
         className={`absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 transition-base ${
           showModelAlways ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         }`}
       >
         {result.model}
+        {price != null && price > 0 && (
+          <span className="text-emerald-300 ml-1">¥{price.toFixed(2)}</span>
+        )}
       </span>
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
         <Button
