@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { httpRequest, httpFormDataRequest } from "@/lib/http-client";
+import { httpRequest } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
 
 export async function POST(request: NextRequest) {
@@ -13,22 +13,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: body }, { status });
     }
 
-    const url = `${baseURL || "https://api.openai.com/v1"}/images/generations/async`;
-    const form = new FormData();
-    form.append("model", "gpt-image-2");
-    form.append("prompt", "a red dot");
-    form.append("size", "1024x1024");
-    form.append("quality", "low");
-    form.append("response_format", "url");
-
+    // 用 GET /models 验证鉴权（免费端点）。
+    // 旧实现提交一次真实异步生图任务并轮询，导致每次「测试连接」都按一张图计费。
+    const url = `${baseURL || "https://api.openai.com/v1"}/models`;
     let res;
     try {
-      res = await httpFormDataRequest(
-        url,
-        form,
-        { Authorization: `Bearer ${apiKey}` },
-        proxyUrl
-      );
+      res = await httpRequest(url, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        proxyUrl: proxyUrl || undefined,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";
       const { body, status } = errorResponse("GEN_UPSTREAM_NETWORK", msg);
@@ -43,51 +36,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (res.status < 200 || res.status >= 300) {
-      let errMsg = "Unknown error";
+      let errMsg = "未知错误";
       try {
         const errData = JSON.parse(res.body);
         errMsg = errData.error?.message || errData.message || errMsg;
-      } catch { /* ignore */ }
-      const { body, status } = errorResponse("AUTH_INVALID_KEY", `${res.status} ${errMsg}`);
+      } catch { /* 非 JSON 错误体，保留默认文案 */ }
+      const { body, status } = errorResponse("GEN_UPSTREAM_FAILED", `${res.status} ${errMsg}`);
       return NextResponse.json({ error: body }, { status });
     }
 
-    let data;
     try {
-      data = JSON.parse(res.body);
+      JSON.parse(res.body);
     } catch {
       const { body, status } = errorResponse("GEN_UPSTREAM_BAD_RESPONSE", "verify");
       return NextResponse.json({ error: body }, { status });
     }
-    const taskId = data?.data?.task_id || data?.task_id;
-    if (!taskId) {
-      const { body, status } = errorResponse("GEN_UPSTREAM_NO_TASK_ID", "verify");
-      return NextResponse.json({ error: body }, { status });
-    }
 
-    // 轮询
-    const taskUrl = `${baseURL || "https://api.openai.com/v1"}/images/tasks/${taskId}`;
-
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const taskRes = await httpRequest(taskUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        proxyUrl: proxyUrl || undefined,
-      });
-      if (taskRes.status < 200 || taskRes.status >= 300) continue;
-      const taskData = JSON.parse(taskRes.body);
-      const status = taskData?.data?.status || taskData?.status;
-      if (status === "SUCCESS") {
-        return NextResponse.json({ ok: true, message: "API Key 验证通过，生图接口正常" });
-      }
-      if (status === "FAILURE") {
-        const reason = taskData?.data?.fail_reason || "未知原因";
-        const { body, status } = errorResponse("TASK_FAILED", reason);
-        return NextResponse.json({ error: body }, { status });
-      }
-    }
-
-    return NextResponse.json({ ok: true, message: "API Key 验证通过，任务已提交（生图接口正常）" });
+    return NextResponse.json({ ok: true, message: "API Key 验证通过" });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const { body, status } = errorResponse("UNKNOWN", message);

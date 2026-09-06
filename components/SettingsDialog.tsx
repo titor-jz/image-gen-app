@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useApiConfig } from "@/lib/api-config-context";
+import { parseErrorResponse } from "@/lib/error-messages";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 
@@ -81,14 +82,21 @@ export function SettingsDialog() {
       if (proxyUrlInput.trim()) headers["x-proxy-url"] = proxyUrlInput.trim();
 
       const res = await fetch("/api/test-key", { method: "POST", headers });
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
       if (res.ok) {
         setTestStatus("success");
-        setTestMessage(data.message || "API Key 验证通过");
+        setTestMessage(data?.message || "API Key 验证通过");
       } else {
         setTestStatus("error");
-        setTestMessage(data.error || "验证失败");
+        // 错误体是 { error: { code, message, details } } 对象，直接塞进 string state
+        // 渲染时会抛 "Objects are not valid as a React child" 导致整个应用白屏
+        const parsed = parseErrorResponse(data);
+        setTestMessage(
+          parsed.details
+            ? `${parsed.message}（${parsed.details}）`
+            : parsed.message
+        );
       }
     } catch {
       setTestStatus("error");

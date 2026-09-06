@@ -9,6 +9,8 @@ export interface GenerateParams {
   quality?: "1k" | "2k" | "4k";
   images?: string[]; // base64 data URLs for multiple reference images
   n?: number; // number of images to generate
+  /** 对比模式的第二个模型（compare 批次入库时记录，历史回填时恢复） */
+  modelB?: string;
 }
 
 export interface GenerateResult {

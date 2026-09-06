@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { FormData as UndiciFormData } from "undici";
 import { httpFormDataRequest } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
 
@@ -79,7 +80,8 @@ export async function POST(request: NextRequest) {
     }
 
     const url = `${baseURL}/images/generations/async`;
-    const form = new FormData();
+    // 用 undici 的 FormData（与 http-client 的 RequestInit 类型对齐）
+    const form = new UndiciFormData();
     form.append("model", model);
     form.append("prompt", prompt);
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;

@@ -72,7 +72,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TASK_POLL_FAILED: "查询任务状态失败",
   TASK_NO_IMAGE_URL: "任务成功但未返回图片地址",
   TASK_DOWNLOAD_FAILED: "下载生成图片失败",
-  TASK_TIMEOUT: "生成超时，请稍后在历史记录中查看",
+  TASK_TIMEOUT: "生成超时，已停止等待（上游任务可能仍在进行，本次结果将无法展示）",
   TASK_FAILED: "任务执行失败",
   TASK_BAD_RESPONSE: "查询任务状态时返回无效响应",
 

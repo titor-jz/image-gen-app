@@ -186,19 +186,23 @@ export function UnifiedInputCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随
+  // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随。
+  // 初始定位/复位经 rAF 异步执行，避免在 effect 体内同步 setState（级联渲染）
   useEffect(() => {
-    if (!showMentions) { setMentionRect(null); return; }
     const update = () => {
       const ta = textareaRef.current;
       if (!ta) return;
       const rect = ta.getBoundingClientRect();
       setMentionRect({ top: rect.bottom + 6, left: rect.left, width: Math.max(224, rect.width) });
     };
-    update();
+    const raf = requestAnimationFrame(() => {
+      if (showMentions) update();
+      else setMentionRect(null);
+    });
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };

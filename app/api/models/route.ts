@@ -35,7 +35,9 @@ const FALLBACK_MODELS: ModelInfo[] = [
 
 export async function GET(request: NextRequest) {
   const apiKey = request.headers.get("x-api-key");
-  const baseURL = request.headers.get("x-base-url");
+  // 与 generate/task 路由保持一致的 baseURL 回退链：header → 环境变量 → 官方
+  const baseURL =
+    request.headers.get("x-base-url") || process.env.OPENAI_BASE_URL;
   const proxyUrl = request.headers.get("x-proxy-url") || "";
 
   if (!apiKey) {
@@ -83,9 +85,12 @@ export async function GET(request: NextRequest) {
       supportedSizes: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
     });
 
-    const models = imageModels.length > 0
-      ? imageModels.map(toModelInfo)
-      : allModels.map(toModelInfo);
+    // 关键字/端点能力都没匹配到时，不回退返回「全部模型」——
+    // 用户选中纯对话模型后调用生图接口必然失败，只暴露兜底模型更安全
+    const models = imageModels.map(toModelInfo);
+    if (models.length === 0) {
+      return NextResponse.json({ models: FALLBACK_MODELS });
+    }
 
     return NextResponse.json({ models });
   } catch {

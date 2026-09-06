@@ -299,33 +299,3 @@ export async function markStaleInFlight(
   return updated;
 }
 
-// 兼容旧 API（已被 useImageGeneration 内部使用，保留以防其他地方引用）
-/** @deprecated use claimInFlight() instead */
-export async function findActiveInFlight(
-  promptHash: string
-): Promise<InFlightEntry | undefined> {
-  const db = await getDB();
-  const tx = db.transaction(IN_FLIGHT_STORE, "readonly");
-  const idx = tx.store.index("promptHash");
-  const matches = (await idx.getAll(promptHash)) as InFlightEntry[];
-  await tx.done;
-  return matches.find(
-    (m) => m.status === "pending" || m.status === "polling"
-  );
-}
-
-/** @deprecated use claimInFlight() instead */
-export async function createInFlight(
-  entry: Omit<InFlightEntry, "startedAt" | "updatedAt">
-): Promise<InFlightEntry> {
-  const db = await getDB();
-  const now = Date.now();
-  const full: InFlightEntry = { ...entry, startedAt: now, updatedAt: now };
-  await db.put(IN_FLIGHT_STORE, full);
-  return full;
-}
-
-/** @deprecated use releaseInFlight() instead */
-export async function deleteInFlight(id: string): Promise<void> {
-  return releaseInFlight(id);
-}

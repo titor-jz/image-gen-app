@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
+import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GenerateResult } from "@/lib/types";
 
@@ -17,6 +17,7 @@ interface ResultGridProps {
  * 图片加载占位组件：默认透明，onLoad 后 fade-in 显形。
  * 容器需自带 bg-muted 作占位底色，避免大图白屏闪烁（§7 loading-states / §3 content-jumping）。
  * alt 填提示词摘要，供屏幕阅读器与图片加载失败时兜底（§1 alt-text）。
+ * onError 时显示占位图标：blob URL 失效等裂图场景不再渲染成永久透明的空块。
  */
 function FadeInImage({
   src,
@@ -30,12 +31,26 @@ function FadeInImage({
   style?: React.CSSProperties;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div
+        className={`${className} flex items-center justify-center text-muted-foreground`}
+        title={alt}
+        role="img"
+        aria-label={`${alt}（图片加载失败）`}
+      >
+        <ImageOff className="w-6 h-6" />
+      </div>
+    );
+  }
   return (
     <img
       src={src}
       alt={alt}
       loading="lazy"
       onLoad={() => setLoaded(true)}
+      onError={() => setFailed(true)}
       style={style}
       className={`${className} transition-opacity duration-300 ${
         loaded ? "opacity-100" : "opacity-0"

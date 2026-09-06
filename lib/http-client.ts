@@ -1,4 +1,4 @@
-import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { ProxyAgent, fetch as undiciFetch, FormData as UndiciFormData, type RequestInit as UndiciRequestInit } from "undici";
 
 export interface HttpResult {
   status: number;
@@ -11,7 +11,7 @@ export async function httpRequest(
   urlStr: string,
   options: { headers?: Record<string, string>; proxyUrl?: string } = {}
 ): Promise<HttpResult> {
-  const fetchInit: RequestInit & { dispatcher?: unknown } = {
+  const fetchInit: UndiciRequestInit = {
     method: "GET",
     headers: options.headers,
     signal: AbortSignal.timeout(30000),
@@ -19,7 +19,7 @@ export async function httpRequest(
   if (options.proxyUrl) {
     fetchInit.dispatcher = new ProxyAgent(options.proxyUrl);
   }
-  const res = await undiciFetch(urlStr, fetchInit as any);
+  const res = await undiciFetch(urlStr, fetchInit);
 
   const arrayBuf = await res.arrayBuffer();
   const buf = Buffer.from(arrayBuf);
@@ -36,11 +36,11 @@ export async function httpRequest(
 
 export async function httpFormDataRequest(
   urlStr: string,
-  form: FormData,
+  form: UndiciFormData,
   extraHeaders: Record<string, string> = {},
   proxyUrl?: string
 ): Promise<HttpResult> {
-  const fetchInit: RequestInit & { dispatcher?: unknown } = {
+  const fetchInit: UndiciRequestInit = {
     method: "POST",
     headers: {
       ...extraHeaders,
@@ -51,7 +51,7 @@ export async function httpFormDataRequest(
   if (proxyUrl) {
     fetchInit.dispatcher = new ProxyAgent(proxyUrl);
   }
-  const res = await undiciFetch(urlStr, fetchInit as any);
+  const res = await undiciFetch(urlStr, fetchInit);
 
   const arrayBuf = await res.arrayBuffer();
   const buf = Buffer.from(arrayBuf);

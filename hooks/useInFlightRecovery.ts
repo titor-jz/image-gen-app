@@ -37,7 +37,7 @@ export function useInFlightRecovery(options: UseInFlightRecoveryOptions = {}): v
         if (recoverable.length > 0) {
           const preview = recoverable[0].promptPreview || "(无提示词)";
           toast.warning(`检测到 ${recoverable.length} 个未完成生成`, {
-            description: `最近一条: "${preview}" — 上游可能仍在生成, 请在历史中查看结果`,
+            description: `最近一条: "${preview}" — 上游可能仍在生成，结果不会自动找回，可等待后重新发起`,
             duration: 10000,
           });
         }

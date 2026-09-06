@@ -100,14 +100,22 @@ export default function Home() {
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
 
-  // 7. 从历史记录回填
   // 7. 从历史记录回填（参考图不再恢复，需用户重新上传）
   const handleSelectRecord = useCallback((record: HistoryRecord) => {
     setPrompt(record.params.prompt);
     setSelectedModel(record.params.model);
+    if (record.params.modelB) setModelB(record.params.modelB);
     setSelectedSize(record.params.size || "auto");
     setSelectedQuality((record.params.quality || "1k") as Quality);
-    setResults(record.results);
+    // 历史里的 imageUrl 是上次会话的 blob: URL，跨会话必已失效；
+    // 置空让 getImageSrc 走 b64_json 的 data URL 兜底，
+    // 否则 <img> 加载失败且无 onError，卡片会渲染成永久透明的空块
+    setResults(
+      record.results.map((r) => ({
+        ...r,
+        imageUrl: r.imageUrl?.startsWith("blob:") ? undefined : r.imageUrl,
+      }))
+    );
     // 历史记录不再保存参考图原始 base64（避免 IDB 存储膨胀），
     // 旧记录兼容：params.images 仍可能存在，但不再回填到参考图区。
     const hadReferenceImages = Array.isArray(record.params.images) && record.params.images.length > 0;

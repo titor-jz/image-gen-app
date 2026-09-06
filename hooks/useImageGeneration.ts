@@ -45,6 +45,8 @@ const CACHE_TTL_MS = 60 * 1000;
 const POLL_BASE_MS = 1000;
 const POLL_MAX_MS = 10 * 1000;
 const POLL_TIMEOUT_MS = 3 * 60 * 1000;
+/** 轮询连续失败容忍次数（网络抖动/serverless 冷启动 5xx 不应判死任务） */
+const MAX_POLL_FAILURES = 3;
 /** 终态任务在进度列表中保留展示的时长，过后淡出移除 */
 const TERMINAL_FADE_MS = 1500;
 
@@ -296,200 +298,207 @@ export function useImageGeneration(
     }
     const inFlightId = claim.entry.id;
 
-    // 解码参考图一次，N 个任务共享
-    const refBlobs: Blob[] = [];
-    for (const img of referencedImages) {
-      const r = await fetch(img.base64);
-      refBlobs.push(await r.blob());
-    }
-
-    // 创建 taskCount 个 submitting 任务
-    // 对比模式:任务0用 model,任务1用 modelB;非对比:全部用 model
-    const newTasks: GenTask[] = Array.from({ length: taskCount }, (_, i) => ({
-      id: genId("task"),
-      batchId,
-      slot: i,
-      prompt: trimmedPrompt,
-      model: isCompare ? (i === 0 ? model : (modelB as string)) : model,
-      size,
-      quality,
-      status: "submitting" as const,
-      progress: 0,
-      elapsedSec: 0,
-      createdAt: Date.now(),
-      compareGroup,
-    }));
-    setTasks((prev) => [...prev, ...newTasks]);
-
-    // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
-    const batchResults: GenerateResult[] = [];
-
-    /**
-     * 单任务流程：缓存命中 → success；否则 POST + 轮询 → success/failed/cancelled。
-     * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
-     */
-    const runTask = async (task: GenTask): Promise<void> => {
-      // 1. 60s 缓存命中（AC4）—— 按任务自身 model 查缓存(对比模式两模型各自独立 key)
-      const cached = await getPromptCache(await buildKeyForModel(task.model));
-      if (cached) {
-        const src = cached.results[task.slot % cached.results.length];
-        // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
-        //  - 新 imageUrl（blob:）：缓存里的 imageUrl 是上次会话的 blob URL，可能已失效
-        //  - 新 id：cacheKey 不含 n，n 不同时取模会复用同一缓存对象，
-        //    复用会导致相同 result.id 与已存在 results 项造成 React key 冲突
-        const blob = await base64ToBlob(src.b64_json, src.mime);
-        const result: GenerateResult = {
-          ...src,
-          id: `gen-${Date.now()}-${task.slot}`,
-          imageUrl: URL.createObjectURL(blob),
-          compareGroup,
-        };
-        batchResults.push(result);
-        markTerminal(task.id, { status: "success", result, progress: 1 });
-        setResults((prev) => [...prev, result]);
-        return;
+    // 从抢占成功到释放之间的任何抛错都必须释放占位，
+    // 否则同参数请求会被锁满 maxAge（5 分钟）
+    try {
+      // 解码参考图一次，N 个任务共享
+      const refBlobs: Blob[] = [];
+      for (const img of referencedImages) {
+        const r = await fetch(img.base64);
+        refBlobs.push(await r.blob());
       }
 
-      // 2. 独立 AbortController
-      const controller = new AbortController();
-      abortMapRef.current.set(task.id, controller);
-
-      try {
-        const headers = buildApiHeaders({ apiKey, baseUrl, proxyUrl });
-        const formData = new FormData();
-        formData.append("prompt", trimmedPrompt);
-        // 对比模式任务1 用 modelB;用 task.model 而非闭包 model,单模型时两者相等
-        formData.append("model", task.model);
-        formData.append("size", size);
-        formData.append("quality", quality);
-        // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
-        formData.append("n", "1");
-        for (const blob of refBlobs) {
-          formData.append("images", blob, `input_${task.slot}.png`);
-        }
-
-        const response = await fetch("/api/generate", {
-          method: "POST",
-          headers,
-          body: formData,
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw await toApiError(response, "GEN_UPSTREAM_FAILED");
-        }
-
-        const contentType = response.headers.get("content-type") || "";
-        let data: {
-          task_id?: string;
-          images?: Array<{ b64_json: string; mime: string }>;
-          error?: string;
-        };
-        if (contentType.includes("application/json")) {
-          data = await response.json();
-        } else {
-          const text = await response.text();
-          throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", text.slice(0, 200));
-        }
-
-        let result: GenerateResult;
-
-        // 异步分支：提交成功 → 轮询
-        if (data.task_id) {
-          updateTask(task.id, { status: "polling", taskId: data.task_id });
-          await updateInFlightStatus(inFlightId, { status: "polling" });
-          const pollResult = await pollTaskResult(
-            data.task_id,
-            headers,
-            controller.signal,
-            (p, elapsed) => {
-              updateTask(task.id, { progress: p, elapsedSec: elapsed });
-            }
-          );
-          result = {
-            id: `gen-${Date.now()}-${task.slot}`,
-            b64_json: pollResult.b64,
-            imageUrl: pollResult.imageUrl,
-            mime: pollResult.mime,
-            prompt: trimmedPrompt,
-            model: task.model,
-            size,
-            compareGroup,
-            createdAt: Date.now(),
-          };
-        } else if (data.images?.length) {
-          // 同步分支：直接返回 base64 图片（转 blob: URL）
-          const img = data.images[0];
-          const blob = await base64ToBlob(img.b64_json, img.mime);
-          result = {
-            id: `gen-${Date.now()}-${task.slot}`,
-            b64_json: img.b64_json,
-            imageUrl: URL.createObjectURL(blob),
-            mime: img.mime,
-            prompt: trimmedPrompt,
-            model: task.model,
-            size,
-            compareGroup,
-            createdAt: Date.now(),
-          };
-        } else {
-          throw new ApiError("GEN_UPSTREAM_NO_TASK_ID");
-        }
-
-        batchResults.push(result);
-        markTerminal(task.id, { status: "success", result, progress: 1 });
-        setResults((prev) => [...prev, result]);
-      } catch (err) {
-        const isAbort =
-          (err instanceof DOMException && err.name === "AbortError") ||
-          (err instanceof Error && err.name === "AbortError");
-        if (isAbort) {
-          markTerminal(task.id, { status: "cancelled" });
-        } else {
-          const msg =
-            err instanceof ApiError
-              ? err.message
-              : err instanceof Error
-              ? err.message
-              : getErrorMessage("UNKNOWN");
-          markTerminal(task.id, { status: "failed", error: msg });
-          toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
-        }
-      } finally {
-        abortMapRef.current.delete(task.id);
-      }
-    };
-
-    // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
-    await Promise.allSettled(newTasks.map((t) => runTask(t)));
-
-    // 4. 汇总：成功项写缓存/历史；释放 in-flight
-    if (batchResults.length > 0) {
-      // 按 model 分组写缓存:对比模式两模型各自独立 key,单模型行为不变
-      const byModel = new Map<string, GenerateResult[]>();
-      for (const r of batchResults) {
-        const arr = byModel.get(r.model) ?? [];
-        arr.push(r);
-        byModel.set(r.model, arr);
-      }
-      for (const [, list] of byModel) {
-        const key = await buildKeyForModel(list[0].model);
-        setPromptCache(key, list, CACHE_TTL_MS).catch(() => {});
-      }
-      const record: HistoryRecord = {
-        id: genId("hist"),
-        params: { prompt: trimmedPrompt, model, size, quality, n },
-        results: batchResults,
+      // 创建 taskCount 个 submitting 任务
+      // 对比模式:任务0用 model,任务1用 modelB;非对比:全部用 model
+      const newTasks: GenTask[] = Array.from({ length: taskCount }, (_, i) => ({
+        id: genId("task"),
+        batchId,
+        slot: i,
+        prompt: trimmedPrompt,
+        model: isCompare ? (i === 0 ? model : (modelB as string)) : model,
+        size,
+        quality,
+        status: "submitting" as const,
+        progress: 0,
+        elapsedSec: 0,
         createdAt: Date.now(),
+        compareGroup,
+      }));
+      setTasks((prev) => [...prev, ...newTasks]);
+
+      // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
+      const batchResults: GenerateResult[] = [];
+
+      /**
+       * 单任务流程：缓存命中 → success；否则 POST + 轮询 → success/failed/cancelled。
+       * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
+       */
+      const runTask = async (task: GenTask): Promise<void> => {
+        // 1. 60s 缓存命中（AC4）—— 按任务自身 model 查缓存(对比模式两模型各自独立 key)
+        const cached = await getPromptCache(await buildKeyForModel(task.model));
+        if (cached) {
+          const src = cached.results[task.slot % cached.results.length];
+          // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
+          //  - 新 imageUrl（blob:）：缓存里的 imageUrl 是上次会话的 blob URL，可能已失效
+          //  - 新 id：cacheKey 不含 n，n 不同时取模会复用同一缓存对象，
+          //    复用会导致相同 result.id 与已存在 results 项造成 React key 冲突
+          const blob = await base64ToBlob(src.b64_json, src.mime);
+          const result: GenerateResult = {
+            ...src,
+            id: `gen-${Date.now()}-${task.slot}`,
+            imageUrl: URL.createObjectURL(blob),
+            compareGroup,
+          };
+          batchResults.push(result);
+          markTerminal(task.id, { status: "success", result, progress: 1 });
+          setResults((prev) => [...prev, result]);
+          return;
+        }
+
+        // 2. 独立 AbortController
+        const controller = new AbortController();
+        abortMapRef.current.set(task.id, controller);
+
+        try {
+          const headers = buildApiHeaders({ apiKey, baseUrl, proxyUrl });
+          const formData = new FormData();
+          formData.append("prompt", trimmedPrompt);
+          // 对比模式任务1 用 modelB;用 task.model 而非闭包 model,单模型时两者相等
+          formData.append("model", task.model);
+          formData.append("size", size);
+          formData.append("quality", quality);
+          // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
+          formData.append("n", "1");
+          for (const blob of refBlobs) {
+            formData.append("images", blob, `input_${task.slot}.png`);
+          }
+
+          const response = await fetch("/api/generate", {
+            method: "POST",
+            headers,
+            body: formData,
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw await toApiError(response, "GEN_UPSTREAM_FAILED");
+          }
+
+          const contentType = response.headers.get("content-type") || "";
+          let data: {
+            task_id?: string;
+            images?: Array<{ b64_json: string; mime: string }>;
+            error?: string;
+          };
+          if (contentType.includes("application/json")) {
+            data = await response.json();
+          } else {
+            const text = await response.text();
+            throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", text.slice(0, 200));
+          }
+
+          let result: GenerateResult;
+
+          // 异步分支：提交成功 → 轮询
+          if (data.task_id) {
+            updateTask(task.id, { status: "polling", taskId: data.task_id });
+            await updateInFlightStatus(inFlightId, { status: "polling" });
+            const pollResult = await pollTaskResult(
+              data.task_id,
+              headers,
+              controller.signal,
+              (p, elapsed) => {
+                updateTask(task.id, { progress: p, elapsedSec: elapsed });
+              }
+            );
+            result = {
+              id: `gen-${Date.now()}-${task.slot}`,
+              b64_json: pollResult.b64,
+              imageUrl: pollResult.imageUrl,
+              mime: pollResult.mime,
+              prompt: trimmedPrompt,
+              model: task.model,
+              size,
+              compareGroup,
+              createdAt: Date.now(),
+            };
+          } else if (data.images?.length) {
+            // 同步分支：直接返回 base64 图片（转 blob: URL）
+            const img = data.images[0];
+            const blob = await base64ToBlob(img.b64_json, img.mime);
+            result = {
+              id: `gen-${Date.now()}-${task.slot}`,
+              b64_json: img.b64_json,
+              imageUrl: URL.createObjectURL(blob),
+              mime: img.mime,
+              prompt: trimmedPrompt,
+              model: task.model,
+              size,
+              compareGroup,
+              createdAt: Date.now(),
+            };
+          } else {
+            throw new ApiError("GEN_UPSTREAM_NO_TASK_ID");
+          }
+
+          batchResults.push(result);
+          markTerminal(task.id, { status: "success", result, progress: 1 });
+          setResults((prev) => [...prev, result]);
+        } catch (err) {
+          const isAbort =
+            (err instanceof DOMException && err.name === "AbortError") ||
+            (err instanceof Error && err.name === "AbortError");
+          if (isAbort) {
+            markTerminal(task.id, { status: "cancelled" });
+          } else {
+            const msg =
+              err instanceof ApiError
+                ? err.message
+                : err instanceof Error
+                ? err.message
+                : getErrorMessage("UNKNOWN");
+            markTerminal(task.id, { status: "failed", error: msg });
+            toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
+          }
+        } finally {
+          abortMapRef.current.delete(task.id);
+        }
       };
-      addHistory(record).catch(() => {});
-      saveSettings({
-        defaultModel: model,
-        defaultSize: size,
-        defaultQuality: quality,
-        defaultN: n,
-      });
+
+      // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
+      await Promise.allSettled(newTasks.map((t) => runTask(t)));
+
+      // 4. 汇总：成功项写缓存/历史
+      if (batchResults.length > 0) {
+        // 按 model 分组写缓存:对比模式两模型各自独立 key,单模型行为不变
+        const byModel = new Map<string, GenerateResult[]>();
+        for (const r of batchResults) {
+          const arr = byModel.get(r.model) ?? [];
+          arr.push(r);
+          byModel.set(r.model, arr);
+        }
+        for (const [, list] of byModel) {
+          const key = await buildKeyForModel(list[0].model);
+          setPromptCache(key, list, CACHE_TTL_MS).catch(() => {});
+        }
+        const record: HistoryRecord = {
+          id: genId("hist"),
+          params: { prompt: trimmedPrompt, model, size, quality, n, modelB: isCompare ? modelB : undefined },
+          // 入库前剥掉内存态的 blob: URL —— 跨会话后必然失效，
+          // 历史回填时由 b64_json 重建（缓存命中路径同理），避免裂图
+          results: batchResults.map((r) => ({ ...r, imageUrl: undefined })),
+          createdAt: Date.now(),
+        };
+        addHistory(record).catch(() => {});
+        saveSettings({
+          defaultModel: model,
+          defaultSize: size,
+          defaultQuality: quality,
+          defaultN: n,
+        });
+      }
+    } finally {
+      releaseInFlight(inFlightId).catch(() => {});
     }
-    releaseInFlight(inFlightId).catch(() => {});
   }, [
     prompt,
     referenceImages,
@@ -580,6 +589,7 @@ async function pollTaskResult(
 ): Promise<PollResult> {
   const startTime = Date.now();
   let nextDelay = POLL_BASE_MS;
+  let consecutiveFailures = 0;
 
   while (true) {
     const elapsed = Date.now() - startTime;
@@ -587,28 +597,41 @@ async function pollTaskResult(
       throw new ApiError("TASK_TIMEOUT");
     }
 
-    try {
-      await backoffSleep(nextDelay, signal);
-    } catch (err) {
-      throw err;
-    }
+    await backoffSleep(nextDelay, signal);
 
     const elapsedSec = Math.round((Date.now() - startTime) / 1000);
     onProgress(elapsed / POLL_TIMEOUT_MS, elapsedSec);
 
-    const taskResponse = await fetch(`/api/task/${taskId}`, {
-      headers,
-      signal,
-    });
-    if (!taskResponse.ok) {
-      throw await toApiError(taskResponse, "TASK_POLL_FAILED");
-    }
-    const taskData: {
+    // 轮询失败容忍：网络抖动 / serverless 冷启动导致的一次性 5xx
+    // 不应判死上游仍在正常执行的任务，重试直到连续 MAX_POLL_FAILURES 次
+    let taskData: {
       status: string;
       image_url?: string;
       mime?: string;
       fail_reason?: string;
-    } = await taskResponse.json();
+    };
+    try {
+      const taskResponse = await fetch(`/api/task/${taskId}`, {
+        headers,
+        signal,
+      });
+      if (!taskResponse.ok) {
+        throw await toApiError(taskResponse, "TASK_POLL_FAILED");
+      }
+      taskData = await taskResponse.json();
+      consecutiveFailures = 0;
+    } catch (err) {
+      if (signal.aborted) throw err;
+      if (err instanceof ApiError && err.code === "TASK_FAILED") throw err;
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_POLL_FAILURES) {
+        throw err instanceof ApiError
+          ? err
+          : new ApiError("TASK_POLL_FAILED", err instanceof Error ? err.message : undefined);
+      }
+      nextDelay = Math.min(nextDelay * 2, POLL_MAX_MS);
+      continue;
+    }
 
     if (taskData.status === "SUCCESS") {
       if (!taskData.image_url) {

@@ -1,4 +1,3 @@
-// 临时文件，待复制到 D:\jz\image-gen-app\app\layout.tsx
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";

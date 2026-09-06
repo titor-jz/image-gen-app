@@ -18,15 +18,19 @@ interface CacheKeyInput {
 }
 
 export async function buildCacheKey(input: CacheKeyInput): Promise<string> {
-  const imageFingerprint = input.referenceImages
-    .map((img) => `${img.base64.length}:${img.base64.slice(0, 64)}`)
-    .join("|");
+  // 对参考图完整 base64 求 SHA-256。
+  // 旧实现用「长度 + 前 64 字符」做指纹，但 data URL 前 64 字符几乎全是
+  // MIME 头 + 标准文件头（JFIF/IHDR），同类型同尺寸的不同图片必然碰撞，
+  // 导致 60s 缓存窗口内换图重新生成会静默返回旧参考图的结果。
+  const imageHashes = await Promise.all(
+    input.referenceImages.map((img) => hashString(img.base64))
+  );
   const composite = [
     input.prompt.trim(),
     input.model,
     input.size,
     input.quality,
-    imageFingerprint,
+    imageHashes.join("|"),
   ].join("\u0001");
   return hashString(composite);
 }

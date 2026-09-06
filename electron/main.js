@@ -95,8 +95,12 @@ app.whenReady().then(() => {
 
     const http = require("http");
     const req = http.get(`http://127.0.0.1:${PORT}`, (res) => {
-      if (res.statusCode === 200 && !windowCreated) {
+      res.resume(); // 释放 socket
+      // 服务有响应即视为就绪（个别路由瞬时 404/5xx 也重试，避免探测静默挂死）
+      if (res.statusCode && res.statusCode < 500 && !windowCreated) {
         createWindow();
+      } else if (!windowCreated) {
+        setTimeout(checkReady, 500);
       }
     });
     req.on("error", () => {
