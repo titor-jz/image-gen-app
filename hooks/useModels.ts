@@ -15,12 +15,11 @@ import { buildApiHeaders } from "@/lib/api-headers";
 import { useApiConfig } from "@/lib/api-config-context";
 import type { ModelInfo } from "@/lib/types";
 
-// 默认兜底模型：当接口失败时仍可继续使用（价格与 /api/models 内置表保持一致）
+// 默认兜底模型：当接口失败时仍可继续使用
 const FALLBACK_MODELS: ModelInfo[] = [
   {
     id: "gpt-image-2",
     name: "GPT-Image2",
-    costPerImage: 0.03,
     supportedSizes: ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"],
   },
 ];

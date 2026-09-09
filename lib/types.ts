@@ -11,6 +11,8 @@ export interface GenerateParams {
   n?: number; // number of images to generate
   /** 对比模式的第二个模型（compare 批次入库时记录，历史回填时恢复） */
   modelB?: string;
+  /** 对比模式第二个模型所用节点名（仅记录展示，回填不恢复节点选择） */
+  nodeBName?: string;
 }
 
 export interface GenerateResult {
@@ -23,6 +25,8 @@ export interface GenerateResult {
   mime: string;
   prompt: string;
   model: string;
+  /** 生成该图的 API 节点名（对比跨节点时用于横幅展示；单节点留空） */
+  nodeName?: string;
   size: AspectRatio;
   createdAt: number;
   cost?: number;
@@ -84,13 +88,20 @@ export interface GenTask {
   taskId?: string;
   /** 对比组标识(同 GenerateResult.compareGroup),单模型任务留空 */
   compareGroup?: string;
+  /** 本任务使用的 API 节点快照（提交时定格；多节点对比时两任务节点不同） */
+  node?: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    proxyUrl: string;
+  };
   createdAt: number;
 }
 
 export interface ModelInfo {
   id: string;
   name: string;
-  costPerImage: number;
   supportedSizes: AspectRatio[];
 }
 

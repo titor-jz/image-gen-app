@@ -1,21 +1,26 @@
-// 临时 SettingsDialog.tsx
 "use client";
 
 /**
- * SettingsDialog - API 配置弹窗
+ * SettingsDialog - API 节点配置弹窗（多节点管理）
  *
- * 状态分层：
- *  - 「已保存值」：来自 ApiConfigContext（响应式）
- *  - 「输入值」：本地 useState（编辑中不立即持久化）
- *
- * 行为保持：
- *  - 打开 dialog 时从 Context 同步到输入框
- *  - 点「保存」时写 Context + localStorage + 关闭
- *  - 点「测试」时仅用 inputValue 测试，不影响 Context
+ * 左侧/上方为节点列表（点击切换激活），下方为当前编辑的节点表单。
+ * 行为：
+ *  - 选中节点 → 加载其值到表单编辑；「保存」写回该节点
+ *  - 「新建节点」→ 空表单，保存后自动激活
+ *  - 「删除」→ 二次确认后删除（至少保留时可删，删空也可）
+ *  - 「测试」→ 用表单当前值测试，不影响已保存配置
  */
 
 import { useState, useEffect } from "react";
-import { Settings, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import {
+  Settings,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Plus,
+  Trash2,
+  Server,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,49 +30,113 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useApiConfig } from "@/lib/api-config-context";
+import { useApiConfig, type ApiProfile } from "@/lib/api-config-context";
 import { parseErrorResponse } from "@/lib/error-messages";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 
+/** 编辑态：null id 表示新建 */
+interface EditState {
+  id: string | null;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  proxyUrl: string;
+}
+
+const EMPTY_EDIT: EditState = {
+  id: null,
+  name: "",
+  baseUrl: "",
+  apiKey: "",
+  proxyUrl: "",
+};
+
+function toEdit(p: ApiProfile): EditState {
+  return { id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: p.apiKey, proxyUrl: p.proxyUrl };
+}
+
 export function SettingsDialog() {
-  // 鉴权配置从 Context 读取（响应式，修改后 Header 也会自动更新）
-  const { apiKey, baseUrl, proxyUrl, setApiKey, setBaseUrl, setProxyUrl } =
-    useApiConfig();
+  const {
+    profiles, activeId, saveProfile, removeProfile, setActiveId,
+  } = useApiConfig();
 
-  // 本地输入态：编辑中不立即持久化（避免频繁写 localStorage）
-  const [inputValue, setInputValue] = useState(apiKey);
-  const [baseUrlInput, setBaseUrlInput] = useState(baseUrl);
-  const [proxyUrlInput, setProxyUrlInput] = useState(proxyUrl);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  // 编辑态（本地草稿，不直接持久化）
+  const [edit, setEdit] = useState<EditState>(EMPTY_EDIT);
+  // 列表中选中的节点（= 正在编辑的对象；与激活项独立）
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  // 测试状态
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
 
-  // 弹窗开关
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  // 打开弹窗时（或 Context 变化时）把已保存值同步到输入框
+  // 打开弹窗时：选中当前激活的节点开始编辑；无任何配置则进入新建态。
+  // 依赖仅 [dialogOpen]：弹窗开着的时候 profiles/activeId 变化（启用切换、
+  // 跨标签页改动）不允许重置表单，否则用户正在输入的草稿会被静默覆盖。
   useEffect(() => {
-    if (dialogOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开时用父级值初始化本地输入框，props→state 同步模式
-      setInputValue(apiKey);
-      setBaseUrlInput(baseUrl);
-      setProxyUrlInput(proxyUrl);
-    }
-  }, [dialogOpen, apiKey, baseUrl, proxyUrl]);
-
-  const handleSave = () => {
-    setApiKey(inputValue);
-    setBaseUrl(baseUrlInput);
-    setProxyUrl(proxyUrlInput);
+    if (!dialogOpen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开时初始化编辑态
+    setEditingId(activeId || null);
+    const current = profiles.find((p) => p.id === activeId);
+    setEdit(current ? toEdit(current) : { ...EMPTY_EDIT });
     setTestStatus("idle");
     setTestMessage("");
-    setDialogOpen(false);
+    setConfirmingDelete(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只在打开时初始化（读值不作为依赖）
+  }, [dialogOpen]);
+
+  // 守卫（渲染期派生）：正在编辑的节点被外部删除（如另一标签页）时，
+  // 保留用户草稿，但提示"保存将创建为新节点"（saveProfile 对失效 id 走新 id），
+  // 删除按钮对幽灵节点禁用
+  const editingMissing = !!editingId && !profiles.some((p) => p.id === editingId);
+
+  const selectEditing = (id: string | null) => {
+    setEditingId(id);
+    setConfirmingDelete(false);
+    setTestStatus("idle");
+    setTestMessage("");
+    if (id === null) {
+      setEdit({ ...EMPTY_EDIT });
+    } else {
+      const p = profiles.find((x) => x.id === id);
+      if (p) setEdit(toEdit(p));
+    }
+  };
+
+  const handleSave = () => {
+    const savedId = saveProfile({
+      id: edit.id ?? undefined,
+      name: edit.name.trim() || edit.baseUrl.trim() || "未命名节点",
+      baseUrl: edit.baseUrl.trim(),
+      apiKey: edit.apiKey.trim(),
+      proxyUrl: edit.proxyUrl.trim(),
+    });
+    // 同步真实 id（新建 / 幽灵节点保存都会拿到新 id），避免重复创建
+    setEditingId(savedId);
+    setEdit((prev) => ({ ...prev, id: savedId }));
+    setConfirmingDelete(false);
+    setTestStatus("idle");
+    setTestMessage("");
+  };
+
+  const handleDelete = () => {
+    if (!edit.id || editingMissing) return;
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    setConfirmingDelete(false);
+    const remaining = profiles.filter((p) => p.id !== edit.id);
+    removeProfile(edit.id);
+    // 显式选中删除后的下一个节点（不依赖 effect 重置，保护用户草稿语义）
+    const next = remaining[0];
+    setEditingId(next ? next.id : null);
+    setEdit(next ? toEdit(next) : { ...EMPTY_EDIT });
   };
 
   const handleTest = async () => {
-    const key = inputValue.trim();
+    const key = edit.apiKey.trim();
     if (!key) return;
 
     setTestStatus("testing");
@@ -78,8 +147,8 @@ export function SettingsDialog() {
         "Content-Type": "application/json",
         "x-api-key": key,
       };
-      if (baseUrlInput.trim()) headers["x-base-url"] = baseUrlInput.trim();
-      if (proxyUrlInput.trim()) headers["x-proxy-url"] = proxyUrlInput.trim();
+      if (edit.baseUrl.trim()) headers["x-base-url"] = edit.baseUrl.trim();
+      if (edit.proxyUrl.trim()) headers["x-proxy-url"] = edit.proxyUrl.trim();
 
       const res = await fetch("/api/test-key", { method: "POST", headers });
       const data = await res.json().catch(() => null);
@@ -89,8 +158,6 @@ export function SettingsDialog() {
         setTestMessage(data?.message || "API Key 验证通过");
       } else {
         setTestStatus("error");
-        // 错误体是 { error: { code, message, details } } 对象，直接塞进 string state
-        // 渲染时会抛 "Objects are not valid as a React child" 导致整个应用白屏
         const parsed = parseErrorResponse(data);
         setTestMessage(
           parsed.details
@@ -103,6 +170,9 @@ export function SettingsDialog() {
       setTestMessage("网络错误，请检查连接");
     }
   };
+
+  const dirty =
+    !!edit.apiKey.trim() || !!edit.baseUrl.trim() || !!edit.proxyUrl.trim() || !!edit.name.trim();
 
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -118,64 +188,144 @@ export function SettingsDialog() {
           </Button>
         }
       />
-      <DialogContent className="bg-card border-border animate-scale-in">
+      <DialogContent className="bg-card border-border animate-scale-in max-w-lg">
         <DialogHeader>
-          <DialogTitle>API 设置</DialogTitle>
+          <DialogTitle>API 节点设置</DialogTitle>
         </DialogHeader>
+
         <div className="space-y-4">
-          <div>
-            <label htmlFor="settings-base-url" className="text-sm text-muted-foreground mb-1.5 block">
-              API Base URL
-            </label>
-            <Input
-              id="settings-base-url"
-              placeholder="https://api.openai.com/v1"
-              value={baseUrlInput}
-              onChange={(e) => {
-                setBaseUrlInput(e.target.value);
-                setTestStatus("idle");
-                setTestMessage("");
-              }}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              第三方中转请填写服务商提供的地址
+          {/* 节点列表：点击选中编辑； radio 标识当前激活（生成时使用） */}
+          <div className="space-y-1.5">
+            {profiles.map((p) => {
+              const isEditing = editingId === p.id;
+              const isActive = p.id === activeId;
+              return (
+                <div
+                  key={p.id}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-base ${
+                    isEditing
+                      ? "border-primary/60 bg-primary/5"
+                      : "border-border hover:bg-accent/40"
+                  }`}
+                  onClick={() => selectEditing(p.id)}
+                  role="button"
+                  aria-pressed={isEditing}
+                >
+                  <Server className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm text-foreground truncate flex-1">
+                    {p.name || "未命名节点"}
+                  </span>
+                  {p.baseUrl && (
+                    <span className="text-xs text-muted-foreground truncate max-w-36 hidden sm:inline">
+                      {p.baseUrl.replace(/^https?:\/\//, "")}
+                    </span>
+                  )}
+                  {isActive ? (
+                    <span className="text-xs text-green-500 shrink-0 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> 使用中
+                    </span>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground press"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveId(p.id);
+                      }}
+                    >
+                      启用
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full press gap-1.5"
+              onClick={() => selectEditing(null)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              新建节点
+            </Button>
+          </div>
+
+          {/* 编辑表单 */}
+          <div className="space-y-3 border-t border-border pt-3">
+            <p className="text-xs text-muted-foreground">
+              {editingMissing
+                ? "该节点已被删除（可能在其他窗口操作），保存将创建为新节点"
+                : edit.id
+                ? "编辑选中节点"
+                : "新建节点（保存后自动启用）"}
             </p>
+            <div>
+              <label htmlFor="settings-name" className="text-sm text-muted-foreground mb-1.5 block">
+                节点名称
+              </label>
+              <Input
+                id="settings-name"
+                placeholder="如：快快API / 官方 / 备用线路"
+                value={edit.name}
+                onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="settings-base-url" className="text-sm text-muted-foreground mb-1.5 block">
+                API Base URL
+              </label>
+              <Input
+                id="settings-base-url"
+                placeholder="https://api.openai.com/v1"
+                value={edit.baseUrl}
+                onChange={(e) => {
+                  setEdit({ ...edit, baseUrl: e.target.value });
+                  setTestStatus("idle");
+                  setTestMessage("");
+                }}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                第三方中转请填写服务商提供的地址
+              </p>
+            </div>
+            <div>
+              <label htmlFor="settings-api-key" className="text-sm text-muted-foreground mb-1.5 block">
+                API Key
+              </label>
+              <Input
+                id="settings-api-key"
+                type="password"
+                placeholder="sk-..."
+                value={edit.apiKey}
+                onChange={(e) => {
+                  setEdit({ ...edit, apiKey: e.target.value });
+                  setTestStatus("idle");
+                  setTestMessage("");
+                }}
+              />
+            </div>
+            <div>
+              <label htmlFor="settings-proxy-url" className="text-sm text-muted-foreground mb-1.5 block">
+                代理地址（可选）
+              </label>
+              <Input
+                id="settings-proxy-url"
+                placeholder="http://127.0.0.1:7890"
+                value={edit.proxyUrl}
+                onChange={(e) => {
+                  setEdit({ ...edit, proxyUrl: e.target.value });
+                  setTestStatus("idle");
+                  setTestMessage("");
+                }}
+              />
+            </div>
           </div>
-          <div>
-            <label htmlFor="settings-api-key" className="text-sm text-muted-foreground mb-1.5 block">
-              API Key
-            </label>
-            <Input
-              id="settings-api-key"
-              type="password"
-              placeholder="sk-..."
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value);
-                setTestStatus("idle");
-                setTestMessage("");
-              }}
-            />
-          </div>
-          <div>
-            <label htmlFor="settings-proxy-url" className="text-sm text-muted-foreground mb-1.5 block">
-              代理地址（可选）
-            </label>
-            <Input
-              id="settings-proxy-url"
-              placeholder="http://127.0.0.1:7890"
-              value={proxyUrlInput}
-              onChange={(e) => {
-                setProxyUrlInput(e.target.value);
-                setTestStatus("idle");
-                setTestMessage("");
-              }}
-            />
-          </div>
+
           <div className="flex gap-2">
             <Button
               onClick={handleTest}
-              disabled={!inputValue.trim() || testStatus === "testing"}
+              disabled={!edit.apiKey.trim() || testStatus === "testing"}
               variant="outline"
               className="flex-1 press"
             >
@@ -188,9 +338,20 @@ export function SettingsDialog() {
               ) : null}
               {testStatus === "testing" ? "验证中..." : "测试连接"}
             </Button>
-            <Button onClick={handleSave} className="flex-1 press">
+            <Button onClick={handleSave} disabled={!dirty} className="flex-1 press">
               保存
             </Button>
+            {edit.id && !editingMissing && (
+              <Button
+                onClick={handleDelete}
+                variant="outline"
+                className={`press shrink-0 ${confirmingDelete ? "border-destructive/50 text-destructive bg-destructive/10" : ""}`}
+                aria-label="删除节点"
+              >
+                <Trash2 className="w-4 h-4" />
+                {confirmingDelete ? "再点确认" : ""}
+              </Button>
+            )}
           </div>
           {testMessage && (
             <p
@@ -199,12 +360,6 @@ export function SettingsDialog() {
               }`}
             >
               {testMessage}
-            </p>
-          )}
-          {apiKey && (
-            <p className="text-xs text-muted-foreground">
-              当前 Key: {apiKey.slice(0, 8)}...
-              {baseUrl && ` | Base URL: ${baseUrl}`}
             </p>
           )}
         </div>

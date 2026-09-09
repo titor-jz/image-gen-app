@@ -15,6 +15,8 @@ interface CacheKeyInput {
   size: string;
   quality: string;
   referenceImages: ReferenceImage[];
+  /** 节点标识（baseURL）：同提示词同模型在不同节点间不共享缓存 */
+  nodeKey?: string;
 }
 
 export async function buildCacheKey(input: CacheKeyInput): Promise<string> {
@@ -30,6 +32,7 @@ export async function buildCacheKey(input: CacheKeyInput): Promise<string> {
     input.model,
     input.size,
     input.quality,
+    input.nodeKey ?? "",
     imageHashes.join("|"),
   ].join("\u0001");
   return hashString(composite);

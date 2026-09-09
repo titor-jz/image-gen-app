@@ -2,9 +2,11 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { buildApiHeaders } from "@/lib/api-headers";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
+import type { ApiProfile } from "@/lib/api-config-context";
 
 export interface ReferenceImage {
   id: string;
@@ -36,6 +38,12 @@ interface UnifiedInputCardProps {
   /** 对比模式第二个模型 */
   modelB: string;
   onModelBChange: (m: string) => void;
+  /** 全部 API 节点配置与当前激活 id（对比模式选 B 侧线路用） */
+  profiles: ApiProfile[];
+  activeNodeId: string;
+  /** 对比模式 B 侧节点 id（null = 跟随当前节点） */
+  nodeBId: string | null;
+  onNodeBChange: (id: string | null) => void;
   /** 全部会话任务（进行中 + 终态淡出期），用于渲染进度列表 */
   tasks: GenTask[];
   /** 取消单个任务 */
@@ -172,6 +180,7 @@ export function UnifiedInputCard({
   models, selectedModel, onModelChange, selectedSize, onSizeChange,
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
+  profiles, activeNodeId, nodeBId, onNodeBChange,
   tasks, onCancelTask,
   onGenerate,
 }: UnifiedInputCardProps) {
@@ -185,6 +194,47 @@ export function UnifiedInputCard({
   const [mentionRect, setMentionRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 对比模式跨节点：B 侧节点的模型列表按需拉取（选完节点 B 才拉，失败回退当前列表）
+  const nodeBProfile = profiles.find((p) => p.id === nodeBId) ?? null;
+  const isCrossNode = !!nodeBProfile && nodeBProfile.id !== activeNodeId;
+  const [modelsB, setModelsB] = useState<ModelInfo[] | null>(null);
+  useEffect(() => {
+    if (!compareMode || !isCrossNode || !nodeBProfile) {
+      // 撤销拉取结果（异步 IIFE 内重置,避免 effect 体同步 setState）
+      void (async () => setModelsB(null))();
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/models", {
+          headers: buildApiHeaders({
+            apiKey: nodeBProfile.apiKey,
+            baseUrl: nodeBProfile.baseUrl,
+            proxyUrl: nodeBProfile.proxyUrl,
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!cancelled && data?.models && Array.isArray(data.models) && data.models.length > 0) {
+          setModelsB(data.models);
+          // 节点 B 的模型列表与当前选择不同源:若 modelB 不在列表中，自动校正为第一个，
+          // 避免下拉显示与实际生成用的模型不一致
+          if (!data.models.some((m: ModelInfo) => m.id === modelB) && data.models[0]?.id) {
+            onModelBChange(data.models[0].id);
+          }
+        } else if (!cancelled) {
+          setModelsB(null);
+        }
+      } catch {
+        if (!cancelled) setModelsB(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [compareMode, isCrossNode, nodeBProfile, modelB, onModelBChange]);
+  const modelBOptions = isCrossNode && modelsB ? modelsB : models;
 
   // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随。
   // 初始定位/复位经 rAF 异步执行，避免在 effect 体内同步 setState（级联渲染）
@@ -389,16 +439,11 @@ export function UnifiedInputCard({
           <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(",")} multiple className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
 
-          {/* 模型选择（下拉项附价格标签，未收录价格的模型不显示） */}
+          {/* 模型选择 */}
           <SelectChip
             value={selectedModel}
             onChange={onModelChange}
-            options={models.map((m) => ({
-              value: m.id,
-              label: m.costPerImage > 0
-                ? `${m.name} · ¥${m.costPerImage.toFixed(2)}/张`
-                : m.name,
-            }))}
+            options={models.map((m) => ({ value: m.id, label: m.name }))}
           />
 
           {/* 对比开关:复用 toolbar-chip 保持圆角统一,激活态用 toolbar-chip-active */}
@@ -412,17 +457,38 @@ export function UnifiedInputCard({
             对比
           </button>
 
-          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应(同样附价格) */}
+          {/* 跨节点对比时的提示徽标:B 侧走独立线路 */}
+          {compareMode && isCrossNode && nodeBProfile && (
+            <span
+              className="toolbar-chip toolbar-chip-active gap-1"
+              title={`对比线路 B:${nodeBProfile.baseUrl}`}
+            >
+              <Server className="w-3.5 h-3.5" />
+              {nodeBProfile.name || "未命名节点"}
+            </span>
+          )}
+
+          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应;
+              跨节点时列表来自节点 B 的 /api/models */}
           {compareMode && (
             <SelectChip
-              value={modelB}
+              value={modelBOptions.some((m) => m.id === modelB) ? modelB : (modelBOptions[0]?.id ?? "")}
               onChange={onModelBChange}
-              options={models.map((m) => ({
-                value: m.id,
-                label: m.costPerImage > 0
-                  ? `B: ${m.name} · ¥${m.costPerImage.toFixed(2)}/张`
-                  : `B: ${m.name}`,
-              }))}
+              options={modelBOptions.map((m) => ({ value: m.id, label: `B: ${m.name}` }))}
+            />
+          )}
+
+          {/* 节点 B 选择:仅对比模式显示,选了不同节点即为跨线路对比;默认「同当前节点」 */}
+          {compareMode && profiles.length > 1 && (
+            <SelectChip
+              value={nodeBId ?? activeNodeId}
+              onChange={(id) => onNodeBChange(id === activeNodeId ? null : id)}
+              options={[
+                { value: activeNodeId, label: "B: 同当前节点" },
+                ...profiles
+                  .filter((p) => p.id !== activeNodeId)
+                  .map((p) => ({ value: p.id, label: `B: ${p.name || "未命名节点"}` })),
+              ]}
             />
           )}
 

@@ -9,8 +9,6 @@ interface ResultGridProps {
   results: GenerateResult[];
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
-  /** 模型 → 单张价格（元）映射，用于结果卡片显示花费；未知模型不显示 */
-  modelPrices?: Record<string, number>;
 }
 
 /**
@@ -59,7 +57,7 @@ function FadeInImage({
   );
 }
 
-export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -187,7 +185,9 @@ export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps
                 className="col-span-full space-y-1 animate-fade-up"
               >
                 <div className="text-xs text-muted-foreground px-1">
-                  模型对比 · {item.a.model} vs {item.b.model}
+                  {item.a.model === item.b.model && item.a.nodeName && item.b.nodeName
+                    ? `线路对比 · ${item.a.nodeName} vs ${item.b.nodeName}`
+                    : `模型对比 · ${item.a.model} vs ${item.b.model}`}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <ResultCard
@@ -197,7 +197,6 @@ export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                     showModelAlways
-                    modelPrices={modelPrices}
                   />
                   <ResultCard
                     result={item.b}
@@ -206,7 +205,6 @@ export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps
                     onDownload={handleDownload}
                     getImageSrc={getImageSrc}
                     showModelAlways
-                    modelPrices={modelPrices}
                   />
                 </div>
               </div>
@@ -220,7 +218,6 @@ export function ResultGrid({ results, hasRunning, modelPrices }: ResultGridProps
               onExpand={handleExpand}
               onDownload={handleDownload}
               getImageSrc={getImageSrc}
-              modelPrices={modelPrices}
             />
           );
         })}
@@ -340,7 +337,6 @@ function ResultCard({
   onDownload,
   getImageSrc,
   showModelAlways = false,
-  modelPrices,
 }: {
   result: GenerateResult;
   index: number;
@@ -349,11 +345,7 @@ function ResultCard({
   getImageSrc: (r: GenerateResult) => string;
   /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
   showModelAlways?: boolean;
-  /** 模型 → 单张价格映射,用于标签里显示该图花费 */
-  modelPrices?: Record<string, number>;
 }) {
-  // 该模型单张价格;>0 才展示,避免给未收录模型显示"¥0.00"
-  const price = modelPrices?.[result.model];
   return (
     <div
       className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
@@ -365,16 +357,13 @@ function ResultCard({
         alt={result.prompt}
         className="w-full h-full object-cover transition-slow group-hover:scale-105"
       />
-      {/* 模型名+价格标签:对比组常驻,非对比组仅 hover */}
+      {/* 模型名+节点标签:对比组常驻,非对比组仅 hover */}
       <span
         className={`absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 transition-base ${
           showModelAlways ? "opacity-100" : "opacity-0 group-hover:opacity-100"
         }`}
       >
-        {result.model}
-        {price != null && price > 0 && (
-          <span className="text-emerald-300 ml-1">¥{price.toFixed(2)}</span>
-        )}
+        {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
         <Button

@@ -18,7 +18,7 @@
  * (hydration mismatch)，所以采用 useEffect 异步同步。
  */
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
@@ -31,6 +31,7 @@ import {
 import { ResultGrid } from "@/components/ResultGrid";
 import { getSettings } from "@/lib/user-settings";
 import { useModels } from "@/hooks/useModels";
+import { useApiConfig } from "@/lib/api-config-context";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
 import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
@@ -55,6 +56,8 @@ export default function Home() {
   // 多模型对比模式
   const [compareMode, setCompareMode] = useState(false);
   const [modelB, setModelB] = useState<string>("gpt-image-2");
+  // 对比模式 B 侧节点（null = 跟随当前激活节点,即同节点对比）
+  const [nodeBId, setNodeBId] = useState<string | null>(null);
 
   // 2. 挂载后从 localStorage 同步用户上次的选择
   // 必须用 useEffect（而非 useState lazy init），因为 localStorage 在 SSR 时不存在，
@@ -70,14 +73,15 @@ export default function Home() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
+  // 2.5 API 节点配置（多套配置,当前激活项用于生成;对比模式可选第二节点）
+  const { profiles, activeId } = useApiConfig();
+  const activeNode = profiles.find((p) => p.id === activeId) ?? null;
+  const nodeB = compareMode && nodeBId
+    ? profiles.find((p) => p.id === nodeBId) ?? null
+    : null;
+
   // 3. 数据：模型列表
   const { models } = useModels();
-
-  // 模型 → 单张价格映射：ResultGrid 结果卡片显示每张图花费时使用
-  const modelPrices = useMemo(
-    () => Object.fromEntries(models.map((m) => [m.id, m.costPerImage])),
-    [models]
-  );
 
   // 4. 启动时检测未完成的任务
   useInFlightRecovery();
@@ -95,6 +99,15 @@ export default function Home() {
     n: selectedN,
     compareMode,
     modelB: modelB as ModelInfo["id"],
+    activeNodeId: activeNode?.id,
+    activeNodeName: activeNode?.name,
+    nodeB: nodeB && nodeB.id !== activeNode?.id ? {
+      id: nodeB.id,
+      name: nodeB.name,
+      baseUrl: nodeB.baseUrl,
+      apiKey: nodeB.apiKey,
+      proxyUrl: nodeB.proxyUrl,
+    } : null,
   });
 
   // 6. 历史抽屉
@@ -171,6 +184,10 @@ export default function Home() {
               onCompareModeChange={setCompareMode}
               modelB={modelB}
               onModelBChange={setModelB}
+              profiles={profiles}
+              activeNodeId={activeId}
+              nodeBId={nodeB?.id ?? null}
+              onNodeBChange={setNodeBId}
               tasks={tasks}
               onCancelTask={cancelTask}
               onGenerate={handleGenerate}
@@ -191,7 +208,7 @@ export default function Home() {
 
           {/* 输出图库 */}
           <div className="animate-fade-up [animation-delay:120ms] input-card p-5">
-            <ResultGrid results={results} hasRunning={loading} modelPrices={modelPrices} />
+            <ResultGrid results={results} hasRunning={loading} />
           </div>
         </div>
       </main>

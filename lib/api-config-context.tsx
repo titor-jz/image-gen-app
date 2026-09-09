@@ -1,22 +1,21 @@
 "use client";
 
 /**
- * ApiConfigContext - API 鉴权配置的单一数据源
+ * ApiConfigContext - API 节点配置的单一数据源（支持多套配置手动切换）
  *
- * 背景：
- *  之前 API Key / BaseUrl / ProxyUrl 通过 lib/api-key.ts 的工具函数直接读写
- *  localStorage，组件各自用 useState + useEffect 同步，导致：
- *   1. Header 的「Key 已配置」绿勾不会在 SettingsDialog 修改后自动更新
- *   2. useImageGeneration 内 getApiKey() 不在 React 订阅体系内
- *   3. 多处「sync setState in effect」触发 lint 错误
+ * 数据结构（localStorage）：
+ *  - image-gen-api-profiles: ApiProfile[]（多个节点：名称 + baseUrl + apiKey + proxyUrl）
+ *  - image-gen-api-active:   当前激活 profile 的 id
  *
- * 方案：
- *  把 apiKey/baseUrl/proxyUrl 三个字段抽到 React Context，通过自定义事件
- *  + 'storage' 事件实现订阅：
- *   - 单一数据源：所有组件读同一份状态
- *   - 响应式：任何组件修改后所有消费方自动重渲染
- *   - SSR 安全：useState lazy init 在客户端首次渲染时同步，避免 hydration mismatch
- *   - 跨标签页：订阅原生 'storage' 事件，B 标签页能感知 A 标签页的修改
+ * 迁移：老版本只有 image-gen-api-key/base-url/proxy-url 三个平铺键。
+ * 首次加载时若存在旧键且无 profiles，自动迁移为一个 profile（保持向后兼容），
+ * 旧键保留不删（防止旧版本代码回写丢失）。
+ *
+ * 对下游的兼容：useApiConfig() 仍然暴露 apiKey/baseUrl/proxyUrl 三个字段
+ * （取自当前激活的 profile），useImageGeneration / useModels / buildApiHeaders
+ * 的消费方式完全不变。
+ *
+ * 响应式机制：同标签页用自定义事件通知，跨标签页订阅原生 'storage' 事件。
  */
 
 import {
@@ -30,28 +29,49 @@ import {
 } from "react";
 
 // ============================================================
-// localStorage 存储 key（与原 lib/api-key.ts 保持一致，避免迁移）
+// localStorage 存储 key
 // ============================================================
-const API_KEY_STORAGE_KEY = "image-gen-api-key";
-const BASE_URL_STORAGE_KEY = "image-gen-base-url";
-const PROXY_URL_STORAGE_KEY = "image-gen-proxy-url";
+const LEGACY_API_KEY = "image-gen-api-key";
+const LEGACY_BASE_URL = "image-gen-base-url";
+const LEGACY_PROXY_URL = "image-gen-proxy-url";
+const PROFILES_STORAGE_KEY = "image-gen-api-profiles";
+const ACTIVE_STORAGE_KEY = "image-gen-api-active";
 
 // 自定义事件名：同标签页内多组件间通知（'storage' 事件只在跨标签页触发）
 const CHANGE_EVENT = "image-gen-api-config-change";
 
-export interface ApiConfig {
-  /** 当前 API Key（原文，因为是用户自己存的） */
-  apiKey: string;
-  /** 自定义上游 baseURL */
+/** 一个 API 节点配置 */
+export interface ApiProfile {
+  /** 稳定 id（生成后不变，用于切换/删除定位） */
+  id: string;
+  /** 节点显示名（如「快快API」「官方」），仅用于 UI 区分 */
+  name: string;
+  /** 该节点的上游 baseURL（对应 x-base-url） */
   baseUrl: string;
-  /** 自定义代理 URL */
+  /** 该节点的 API Key（对应 x-api-key） */
+  apiKey: string;
+  /** 可选代理（对应 x-proxy-url） */
   proxyUrl: string;
-  /** 设置 API Key（同步写 localStorage 并通知订阅者） */
-  setApiKey: (key: string) => void;
-  /** 设置 Base URL */
-  setBaseUrl: (url: string) => void;
-  /** 设置代理 URL */
-  setProxyUrl: (url: string) => void;
+}
+
+export interface ApiConfig {
+  /** 当前激活的 profile（无任何配置时为 null） */
+  activeProfile: ApiProfile | null;
+  /** 全部配置（顺序即 UI 展示顺序） */
+  profiles: ApiProfile[];
+  /** 当前激活 profile 的 id（无则为空串） */
+  activeId: string;
+  /** 新增/更新一个 profile（按 id 匹配；无 id 则生成新 profile 并激活），返回最终 id */
+  saveProfile: (profile: Omit<ApiProfile, "id"> & { id?: string }) => string;
+  /** 删除一个 profile；若删除的是激活项则顺延激活第一个 */
+  removeProfile: (id: string) => void;
+  /** 切换当前激活的 profile */
+  setActiveId: (id: string) => void;
+  // ---- 兼容字段：下游 hooks 继续按单配置消费 ----
+  /** 当前激活 profile 的 apiKey（等价 activeProfile?.apiKey） */
+  apiKey: string;
+  baseUrl: string;
+  proxyUrl: string;
 }
 
 const ApiConfigContext = createContext<ApiConfig | null>(null);
@@ -60,7 +80,6 @@ const ApiConfigContext = createContext<ApiConfig | null>(null);
 // localStorage 读写工具（内部使用，不导出）
 // ============================================================
 
-/** 安全读取 localStorage（容错：SSR/隐私模式返回空字符串） */
 function readStorage(key: string): string {
   if (typeof window === "undefined") return "";
   try {
@@ -70,7 +89,6 @@ function readStorage(key: string): string {
   }
 }
 
-/** 安全写入 localStorage（空值会删除键） */
 function writeStorage(key: string, value: string): void {
   if (typeof window === "undefined") return;
   try {
@@ -84,50 +102,102 @@ function writeStorage(key: string, value: string): void {
   }
 }
 
+function genProfileId(): string {
+  return `profile-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** 解析 profiles；坏数据返回空数组 */
+function parseProfiles(raw: string): ApiProfile[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((p) => p && typeof p === "object" && typeof p.id === "string")
+      .map((p: Partial<ApiProfile>) => ({
+        id: p.id as string,
+        name: typeof p.name === "string" ? p.name : "",
+        baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : "",
+        apiKey: typeof p.apiKey === "string" ? p.apiKey : "",
+        proxyUrl: typeof p.proxyUrl === "string" ? p.proxyUrl : "",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** 读取全部 profiles，并处理旧版本平铺键的一次性迁移 */
+function loadProfiles(): ApiProfile[] {
+  let profiles = parseProfiles(readStorage(PROFILES_STORAGE_KEY));
+  if (profiles.length === 0) {
+    const legacyKey = readStorage(LEGACY_API_KEY);
+    const legacyBase = readStorage(LEGACY_BASE_URL);
+    const legacyProxy = readStorage(LEGACY_PROXY_URL);
+    if (legacyKey || legacyBase || legacyProxy) {
+      // 老配置迁移为第一个 profile，激活之。迁移后必须删除旧键：
+      // 否则用户删空所有 profile 时，这里的 legacy 检查会再次命中，
+      // 已删除的"默认节点"被原样复活（删空操作永远不成功）。
+      profiles = [
+        {
+          id: genProfileId(),
+          name: "默认节点",
+          baseUrl: legacyBase,
+          apiKey: legacyKey,
+          proxyUrl: legacyProxy,
+        },
+      ];
+      writeStorage(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+      writeStorage(ACTIVE_STORAGE_KEY, profiles[0].id);
+      writeStorage(LEGACY_API_KEY, "");
+      writeStorage(LEGACY_BASE_URL, "");
+      writeStorage(LEGACY_PROXY_URL, "");
+    }
+  }
+  return profiles;
+}
+
+function loadActiveId(profiles: ApiProfile[]): string {
+  const active = readStorage(ACTIVE_STORAGE_KEY);
+  if (active && profiles.some((p) => p.id === active)) return active;
+  return profiles[0]?.id ?? "";
+}
+
+/** 序列化 + 广播（写入后所有消费方同步刷新） */
+function persist(profiles: ApiProfile[], activeId: string): void {
+  writeStorage(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+  writeStorage(ACTIVE_STORAGE_KEY, activeId);
+  window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
 // ============================================================
 // Provider 实现
 // ============================================================
 
-export interface ApiConfigProviderProps {
-  children: ReactNode;
-}
-
-export function ApiConfigProvider({ children }: ApiConfigProviderProps) {
-  // 初始值固定为空字符串：服务端和客户端首次渲染都返回空值，保证 hydration 一致。
-  // 说明：之前使用 useState lazy init 在客户端首次渲染时同步读取 localStorage，
-  //      导致服务端（空）与客户端（localStorage 实际值）不一致，触发 hydration mismatch。
-  //      现在改为：初始空值 → 挂载后 useEffect 读取 localStorage 并 setValue，
-  //      这是 React 官方推荐的「从外部系统初始化 state」的 SSR 安全模式。
-  const [value, setValue] = useState<{ apiKey: string; baseUrl: string; proxyUrl: string }>({
-    apiKey: "",
-    baseUrl: "",
-    proxyUrl: "",
+export function ApiConfigProvider({ children }: { children: ReactNode }) {
+  // 初始值为空：服务端与客户端首帧一致（hydration 安全），挂载后从 localStorage 同步
+  const [state, setState] = useState<{ profiles: ApiProfile[]; activeId: string }>({
+    profiles: [],
+    activeId: "",
   });
 
-  // 挂载后读取 localStorage（首次同步） + 订阅后续变化
   useEffect(() => {
     const refresh = () => {
-      setValue({
-        apiKey: readStorage(API_KEY_STORAGE_KEY),
-        baseUrl: readStorage(BASE_URL_STORAGE_KEY),
-        proxyUrl: readStorage(PROXY_URL_STORAGE_KEY),
-      });
+      const profiles = loadProfiles();
+      setState({ profiles, activeId: loadActiveId(profiles) });
     };
 
-    // 首次挂载时立即读取一次，把 localStorage 的真实值同步到 state
     refresh();
-
     const handleStorage = (e: StorageEvent) => {
-      // 只关心我们关心的 key
       if (
-        e.key === API_KEY_STORAGE_KEY ||
-        e.key === BASE_URL_STORAGE_KEY ||
-        e.key === PROXY_URL_STORAGE_KEY
+        e.key === PROFILES_STORAGE_KEY ||
+        e.key === ACTIVE_STORAGE_KEY ||
+        e.key === LEGACY_API_KEY ||
+        e.key === LEGACY_BASE_URL ||
+        e.key === LEGACY_PROXY_URL
       ) {
         refresh();
       }
     };
-
     window.addEventListener("storage", handleStorage);
     window.addEventListener(CHANGE_EVENT, refresh);
     return () => {
@@ -136,34 +206,77 @@ export function ApiConfigProvider({ children }: ApiConfigProviderProps) {
     };
   }, []);
 
-  // setter 实现：写 localStorage + 广播（同标签页）
-  // 跨标签页的 storage 事件由浏览器自动触发
-  const setApiKey = useCallback((key: string) => {
-    writeStorage(API_KEY_STORAGE_KEY, key);
-    window.dispatchEvent(new Event(CHANGE_EVENT));
+  const saveProfile = useCallback(
+    (profile: Omit<ApiProfile, "id"> & { id?: string }): string => {
+      const profiles = loadProfiles();
+      const activeId = loadActiveId(profiles);
+      if (profile.id) {
+        const idx = profiles.findIndex((p) => p.id === profile.id);
+        if (idx >= 0) {
+          const next = [...profiles];
+          next[idx] = { ...next[idx], ...profile, id: profile.id };
+          persist(next, activeId);
+          return profile.id;
+        }
+        // id 未命中：该节点已被（可能是另一标签页）删除。
+        // 不能沿用旧 id 走创建分支——那会以相同 id"复活"已删节点，
+        // 且已持有该 id 引用的界面会与用户"已删除"的心智冲突。
+      }
+      const created: ApiProfile = {
+        id: genProfileId(),
+        name: profile.name,
+        baseUrl: profile.baseUrl,
+        apiKey: profile.apiKey,
+        proxyUrl: profile.proxyUrl,
+      };
+      // 新建即激活
+      persist([...profiles, created], created.id);
+      return created.id;
+    },
+    []
+  );
+
+  const removeProfile = useCallback((id: string) => {
+    const profiles = loadProfiles();
+    const next = profiles.filter((p) => p.id !== id);
+    const activeId = loadActiveId(profiles);
+    // 删除激活项则顺延到第一个；删空则清空激活
+    const nextActive = activeId === id ? (next[0]?.id ?? "") : activeId;
+    persist(next, nextActive);
   }, []);
 
-  const setBaseUrl = useCallback((url: string) => {
-    writeStorage(BASE_URL_STORAGE_KEY, url);
-    window.dispatchEvent(new Event(CHANGE_EVENT));
+  const setActiveId = useCallback((id: string) => {
+    const profiles = loadProfiles();
+    if (!profiles.some((p) => p.id === id)) return;
+    persist(profiles, id);
   }, []);
 
-  const setProxyUrl = useCallback((url: string) => {
-    writeStorage(PROXY_URL_STORAGE_KEY, url);
-    window.dispatchEvent(new Event(CHANGE_EVENT));
-  }, []);
+  const activeProfile = useMemo(
+    () => state.profiles.find((p) => p.id === state.activeId) ?? null,
+    [state.profiles, state.activeId]
+  );
 
-  // 暴露的 context value（用 useMemo 避免下游不必要的重渲染）
   const ctxValue = useMemo<ApiConfig>(
     () => ({
-      apiKey: value.apiKey,
-      baseUrl: value.baseUrl,
-      proxyUrl: value.proxyUrl,
-      setApiKey,
-      setBaseUrl,
-      setProxyUrl,
+      activeProfile,
+      profiles: state.profiles,
+      activeId: state.activeId,
+      saveProfile,
+      removeProfile,
+      setActiveId,
+      // 兼容字段（下游 hooks 按单配置消费，语义不变）
+      apiKey: activeProfile?.apiKey ?? "",
+      baseUrl: activeProfile?.baseUrl ?? "",
+      proxyUrl: activeProfile?.proxyUrl ?? "",
     }),
-    [value.apiKey, value.baseUrl, value.proxyUrl, setApiKey, setBaseUrl, setProxyUrl]
+    [
+      activeProfile,
+      state.profiles,
+      state.activeId,
+      saveProfile,
+      removeProfile,
+      setActiveId,
+    ]
   );
 
   return (
@@ -177,11 +290,6 @@ export function ApiConfigProvider({ children }: ApiConfigProviderProps) {
 // 消费 hook
 // ============================================================
 
-/**
- * 消费 API 配置 Context
- *
- * @throws 在 Provider 外调用时抛出错误（防止忘记包裹 Provider）
- */
 export function useApiConfig(): ApiConfig {
   const ctx = useContext(ApiConfigContext);
   if (!ctx) {

@@ -62,6 +62,20 @@ export interface UseImageGenerationOptions {
   compareMode?: boolean;
   /** 对比模式下的第二个模型(compareMode=true 时生效) */
   modelB?: ModelId;
+  /** 当前激活节点的 id 与名称（用于判定对比是否跨节点、结果标注） */
+  activeNodeId?: string;
+  activeNodeName?: string;
+  /**
+   * 对比模式的 B 侧节点。缺省或与激活节点相同时，行为退化为同节点双模型对比。
+   * 不同时，任务 B 用该节点的 Key/URL 提交与轮询（模型 B 应存在于该节点）。
+   */
+  nodeB?: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    proxyUrl: string;
+  } | null;
 }
 
 export interface UseImageGenerationResult {
@@ -169,7 +183,10 @@ async function toApiError(
 export function useImageGeneration(
   options: UseImageGenerationOptions
 ): UseImageGenerationResult {
-  const { prompt, referenceImages, model, size, quality, n, compareMode, modelB } = options;
+  const {
+    prompt, referenceImages, model, size, quality, n, compareMode, modelB,
+    activeNodeId, activeNodeName, nodeB,
+  } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
   const { apiKey: apiKeyFromCtx, baseUrl, proxyUrl } = useApiConfig();
@@ -241,25 +258,41 @@ export function useImageGeneration(
     const trimmedPrompt = prompt.trim();
     const batchId = genId("batch");
 
-    // 对比模式:2 个任务各用不同模型,共享 batchId + compareGroup
-    const isCompare = compareMode && modelB && modelB !== model;
+    // 节点快照：A 侧 = 当前激活节点（提交时定格）；B 侧 = nodeB
+    const nodeA = {
+      id: activeNodeId || "active",
+      name: activeNodeName || "当前节点",
+      baseUrl,
+      apiKey,
+      proxyUrl,
+    };
+    // 对比模式跨节点：B 侧选择了不同节点（同模型跨线路对比也成立）
+    const crossNode = !!nodeB && nodeB.id !== (activeNodeId ?? "");
+    // 对比模式:2 个任务各用不同模型/节点,共享 batchId + compareGroup
+    const isCompare =
+      compareMode && ((!!modelB && modelB !== model) || crossNode);
     const compareGroup = isCompare ? batchId : undefined;
-    // 对比模式固定 2 任务(每模型1张),非对比走原 n
+    // 对比模式固定 2 任务(每侧1张),非对比走原 n
     const taskCount = isCompare ? 2 : n;
 
-    // cacheKey 按模型维度:对比模式两个任务各自独立 key
-    const buildKeyForModel = async (m: string) =>
+    const nodeForTask = (i: number) =>
+      isCompare && i === 1 && crossNode && nodeB ? nodeB : nodeA;
+
+    // cacheKey 按「节点+模型」维度:对比模式两个任务各自独立 key，
+    // 同提示词同模型在不同节点间也不共享缓存
+    const buildKeyForModel = async (m: string, nodeKey: string) =>
       buildCacheKey({
         prompt: trimmedPrompt,
         model: m,
         size,
         quality,
+        nodeKey,
         referenceImages: referencedImages,
       });
 
     // 批次级 cacheKey（不含 n，每个任务恒 n=1）
-    // 单模型即本批所有任务的 key;对比模式以 model 的 key 代表本批次做 in-flight claim
-    const cacheKey = await buildKeyForModel(model);
+    // 单模型即本批所有任务的 key;对比模式以 A 侧的 key 代表本批次做 in-flight claim
+    const cacheKey = await buildKeyForModel(model, nodeA.baseUrl);
 
     // 批次级 in-flight 抢占：跨批次同参数去重（AC5）
     const claim = await claimInFlight(cacheKey, trimmedPrompt.slice(0, 60));
@@ -309,7 +342,7 @@ export function useImageGeneration(
       }
 
       // 创建 taskCount 个 submitting 任务
-      // 对比模式:任务0用 model,任务1用 modelB;非对比:全部用 model
+      // 对比模式:任务0用 model+节点A,任务1用 modelB+节点B;非对比:全部用当前配置
       const newTasks: GenTask[] = Array.from({ length: taskCount }, (_, i) => ({
         id: genId("task"),
         batchId,
@@ -323,19 +356,24 @@ export function useImageGeneration(
         elapsedSec: 0,
         createdAt: Date.now(),
         compareGroup,
+        node: nodeForTask(i),
       }));
       setTasks((prev) => [...prev, ...newTasks]);
 
       // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
-      const batchResults: GenerateResult[] = [];
+      // 携带产出它的节点快照，供按「节点+模型」分组写缓存
+      const completed: Array<{ result: GenerateResult; node: GenTask["node"] }> = [];
 
       /**
        * 单任务流程：缓存命中 → success；否则 POST + 轮询 → success/failed/cancelled。
        * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
        */
       const runTask = async (task: GenTask): Promise<void> => {
-        // 1. 60s 缓存命中（AC4）—— 按任务自身 model 查缓存(对比模式两模型各自独立 key)
-        const cached = await getPromptCache(await buildKeyForModel(task.model));
+        const taskNode = task.node ?? nodeA;
+        // 1. 60s 缓存命中（AC4）—— 按任务自身「节点+模型」查缓存
+        const cached = await getPromptCache(
+          await buildKeyForModel(task.model, taskNode.baseUrl)
+        );
         if (cached) {
           const src = cached.results[task.slot % cached.results.length];
           // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
@@ -347,9 +385,10 @@ export function useImageGeneration(
             ...src,
             id: `gen-${Date.now()}-${task.slot}`,
             imageUrl: URL.createObjectURL(blob),
+            nodeName: taskNode.name,
             compareGroup,
           };
-          batchResults.push(result);
+          completed.push({ result, node: taskNode });
           markTerminal(task.id, { status: "success", result, progress: 1 });
           setResults((prev) => [...prev, result]);
           return;
@@ -360,7 +399,12 @@ export function useImageGeneration(
         abortMapRef.current.set(task.id, controller);
 
         try {
-          const headers = buildApiHeaders({ apiKey, baseUrl, proxyUrl });
+          // 每任务用自己节点的鉴权配置（跨节点对比时两任务走不同线路）
+          const headers = buildApiHeaders({
+            apiKey: taskNode.apiKey,
+            baseUrl: taskNode.baseUrl,
+            proxyUrl: taskNode.proxyUrl,
+          });
           const formData = new FormData();
           formData.append("prompt", trimmedPrompt);
           // 对比模式任务1 用 modelB;用 task.model 而非闭包 model,单模型时两者相等
@@ -410,37 +454,39 @@ export function useImageGeneration(
                 updateTask(task.id, { progress: p, elapsedSec: elapsed });
               }
             );
-            result = {
-              id: `gen-${Date.now()}-${task.slot}`,
-              b64_json: pollResult.b64,
-              imageUrl: pollResult.imageUrl,
-              mime: pollResult.mime,
-              prompt: trimmedPrompt,
-              model: task.model,
-              size,
-              compareGroup,
-              createdAt: Date.now(),
-            };
-          } else if (data.images?.length) {
-            // 同步分支：直接返回 base64 图片（转 blob: URL）
-            const img = data.images[0];
-            const blob = await base64ToBlob(img.b64_json, img.mime);
-            result = {
-              id: `gen-${Date.now()}-${task.slot}`,
-              b64_json: img.b64_json,
-              imageUrl: URL.createObjectURL(blob),
-              mime: img.mime,
-              prompt: trimmedPrompt,
-              model: task.model,
-              size,
-              compareGroup,
-              createdAt: Date.now(),
-            };
+          result = {
+            id: `gen-${Date.now()}-${task.slot}`,
+            b64_json: pollResult.b64,
+            imageUrl: pollResult.imageUrl,
+            mime: pollResult.mime,
+            prompt: trimmedPrompt,
+            model: task.model,
+            nodeName: taskNode.name,
+            size,
+            compareGroup,
+            createdAt: Date.now(),
+          };
+        } else if (data.images?.length) {
+          // 同步分支：直接返回 base64 图片（转 blob: URL）
+          const img = data.images[0];
+          const blob = await base64ToBlob(img.b64_json, img.mime);
+          result = {
+            id: `gen-${Date.now()}-${task.slot}`,
+            b64_json: img.b64_json,
+            imageUrl: URL.createObjectURL(blob),
+            mime: img.mime,
+            prompt: trimmedPrompt,
+            model: task.model,
+            nodeName: taskNode.name,
+            size,
+            compareGroup,
+            createdAt: Date.now(),
+          };
           } else {
             throw new ApiError("GEN_UPSTREAM_NO_TASK_ID");
           }
 
-          batchResults.push(result);
+          completed.push({ result, node: taskNode });
           markTerminal(task.id, { status: "success", result, progress: 1 });
           setResults((prev) => [...prev, result]);
         } catch (err) {
@@ -467,22 +513,36 @@ export function useImageGeneration(
       // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
       await Promise.allSettled(newTasks.map((t) => runTask(t)));
 
-      // 4. 汇总：成功项写缓存/历史
+      // 4. 汇总：成功项按「节点+模型」分组写缓存；历史入库
+      const batchResults = completed.map((c) => c.result);
       if (batchResults.length > 0) {
-        // 按 model 分组写缓存:对比模式两模型各自独立 key,单模型行为不变
-        const byModel = new Map<string, GenerateResult[]>();
-        for (const r of batchResults) {
-          const arr = byModel.get(r.model) ?? [];
-          arr.push(r);
-          byModel.set(r.model, arr);
+        const byNodeModel = new Map<string, { node: GenTask["node"]; results: GenerateResult[] }>();
+        for (const c of completed) {
+          const node = c.node ?? nodeA;
+          const groupKey = `${node.baseUrl}\u0000${c.result.model}`;
+          const entry = byNodeModel.get(groupKey);
+          if (entry) {
+            entry.results.push(c.result);
+          } else {
+            byNodeModel.set(groupKey, { node, results: [c.result] });
+          }
         }
-        for (const [, list] of byModel) {
-          const key = await buildKeyForModel(list[0].model);
-          setPromptCache(key, list, CACHE_TTL_MS).catch(() => {});
+        for (const { node: maybeNode, results } of byNodeModel.values()) {
+          const node = maybeNode ?? nodeA;
+          const key = await buildKeyForModel(results[0].model, node.baseUrl);
+          setPromptCache(key, results, CACHE_TTL_MS).catch(() => {});
         }
         const record: HistoryRecord = {
           id: genId("hist"),
-          params: { prompt: trimmedPrompt, model, size, quality, n, modelB: isCompare ? modelB : undefined },
+          params: {
+            prompt: trimmedPrompt,
+            model,
+            size,
+            quality,
+            n,
+            modelB: isCompare ? modelB : undefined,
+            nodeBName: isCompare && crossNode ? nodeB?.name : undefined,
+          },
           // 入库前剥掉内存态的 blob: URL —— 跨会话后必然失效，
           // 历史回填时由 b64_json 重建（缓存命中路径同理），避免裂图
           results: batchResults.map((r) => ({ ...r, imageUrl: undefined })),
@@ -508,6 +568,9 @@ export function useImageGeneration(
     n,
     compareMode,
     modelB,
+    activeNodeId,
+    activeNodeName,
+    nodeB,
     baseUrl,
     proxyUrl,
     updateTask,
