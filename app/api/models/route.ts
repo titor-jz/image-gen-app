@@ -51,19 +51,25 @@ export async function GET(request: NextRequest) {
     }
     const allModels = data?.data || [];
 
-    // 优先按上游声明的端点能力筛选：supported_endpoint_types 含 image* 的
-    // 模型才真正支持生图接口，与服务商模型页的「图像」分类一致；
-    // 若把仅支持对话接口的模型（如 nano-banana 系列误匹配 keyword）放进去，
-    // 用户选中后调用 /images/generations/async 必然失败。
-    // 上游不返回该字段时（如 OpenAI 官方 /v1/models），回退到 id 关键字匹配。
+    // 生图模型 = 「端点能力声明支持 image」∪「id 命中图像关键字」。
+    // 两者必须取并集而不是二选一：
+    //  - 不少中转把图像模型挂在 /v1/chat/completions 上（如 gpt-image-2.5-flare、
+    //    gemini-image 系列），其 supported_endpoint_types 不含 image，
+    //    若只用端点筛选会被漏掉；
+    //  - 反过来，部分上游不返回 supported_endpoint_types，只能靠关键字兜底。
     const endpointImageModels = allModels.filter(
       (m: { supported_endpoint_types?: string[] }) =>
         Array.isArray(m.supported_endpoint_types) &&
         m.supported_endpoint_types.some((t: string) => t.includes("image"))
     );
-    const imageModels = endpointImageModels.length > 0
-      ? endpointImageModels
-      : allModels.filter((m: { id: string }) => isImageModel(m.id));
+    const keywordImageModels = allModels.filter((m: { id: string }) =>
+      isImageModel(m.id)
+    );
+    const dedup = new Map<string, { id: string }>();
+    for (const m of [...endpointImageModels, ...keywordImageModels]) {
+      dedup.set(m.id, m);
+    }
+    const imageModels = [...dedup.values()];
 
     const toModelInfo = (m: { id: string }): ModelInfo => ({
       id: m.id,

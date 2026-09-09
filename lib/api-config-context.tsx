@@ -52,6 +52,8 @@ export interface ApiProfile {
   apiKey: string;
   /** 可选代理（对应 x-proxy-url） */
   proxyUrl: string;
+  /** 手动补充的模型 id（上游 /v1/models 未返回、或端点类型识别不到的模型） */
+  customModels?: string[];
 }
 
 export interface ApiConfig {
@@ -120,6 +122,9 @@ function parseProfiles(raw: string): ApiProfile[] {
         baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : "",
         apiKey: typeof p.apiKey === "string" ? p.apiKey : "",
         proxyUrl: typeof p.proxyUrl === "string" ? p.proxyUrl : "",
+        customModels: Array.isArray(p.customModels)
+          ? p.customModels.filter((m): m is string => typeof m === "string")
+          : [],
       }));
   } catch {
     return [];
@@ -214,7 +219,12 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
         const idx = profiles.findIndex((p) => p.id === profile.id);
         if (idx >= 0) {
           const next = [...profiles];
-          next[idx] = { ...next[idx], ...profile, id: profile.id };
+          next[idx] = {
+            ...next[idx],
+            ...profile,
+            id: profile.id,
+            customModels: profile.customModels ?? next[idx].customModels ?? [],
+          };
           persist(next, activeId);
           return profile.id;
         }
@@ -228,6 +238,7 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
         baseUrl: profile.baseUrl,
         apiKey: profile.apiKey,
         proxyUrl: profile.proxyUrl,
+        customModels: profile.customModels ?? [],
       };
       // 新建即激活
       persist([...profiles, created], created.id);

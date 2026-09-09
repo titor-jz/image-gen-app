@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare, Server } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare, Server, Clock, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { buildApiHeaders } from "@/lib/api-headers";
+import { mergeCustomModels } from "@/lib/custom-models";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
 
@@ -48,6 +49,10 @@ interface UnifiedInputCardProps {
   tasks: GenTask[];
   /** 取消单个任务 */
   onCancelTask: (id: string) => void;
+  /** 超时任务续一轮轮询 */
+  onResumeTask: (id: string) => void;
+  /** 移除超时/残留任务行 */
+  onDismissTask: (id: string) => void;
   onGenerate: () => void;
 }
 
@@ -181,7 +186,7 @@ export function UnifiedInputCard({
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
-  tasks, onCancelTask,
+  tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -217,11 +222,12 @@ export function UnifiedInputCard({
         });
         const data = await res.json().catch(() => null);
         if (!cancelled && data?.models && Array.isArray(data.models) && data.models.length > 0) {
-          setModelsB(data.models);
+          const merged = mergeCustomModels(data.models, nodeBProfile.customModels);
+          setModelsB(merged);
           // 节点 B 的模型列表与当前选择不同源:若 modelB 不在列表中，自动校正为第一个，
           // 避免下拉显示与实际生成用的模型不一致
-          if (!data.models.some((m: ModelInfo) => m.id === modelB) && data.models[0]?.id) {
-            onModelBChange(data.models[0].id);
+          if (!merged.some((m) => m.id === modelB) && merged[0]?.id) {
+            onModelBChange(merged[0].id);
           }
         } else if (!cancelled) {
           setModelsB(null);
@@ -546,6 +552,8 @@ export function UnifiedInputCard({
                     ? CheckCircle2
                     : slot.status === "failed"
                     ? XCircle
+                    : slot.status === "timeout"
+                    ? Clock
                     : slot.status === "cancelled"
                     ? Ban
                     : Loader2;
@@ -554,12 +562,16 @@ export function UnifiedInputCard({
                     ? "text-emerald-500"
                     : slot.status === "failed"
                     ? "text-destructive"
+                    : slot.status === "timeout"
+                    ? "text-amber-500"
                     : slot.status === "cancelled"
                     ? "text-muted-foreground/60"
                     : "text-primary";
                 const barColor =
                   slot.status === "failed"
                     ? "bg-destructive"
+                    : slot.status === "timeout"
+                    ? "bg-amber-500/70"
                     : slot.status === "cancelled"
                     ? "bg-muted-foreground/40"
                     : slot.status === "success"
@@ -568,12 +580,15 @@ export function UnifiedInputCard({
                 const isTerminal =
                   slot.status === "success" ||
                   slot.status === "failed" ||
+                  slot.status === "timeout" ||
                   slot.status === "cancelled";
                 const label = isTerminal
                   ? slot.status === "success"
                     ? "完成"
                     : slot.status === "failed"
                     ? "失败"
+                    : slot.status === "timeout"
+                    ? "超时"
                     : "取消"
                   : slot.elapsedSec
                   ? `${slot.elapsedSec}s`
@@ -623,6 +638,29 @@ export function UnifiedInputCard({
                       >
                         <X className="w-3.5 h-3.5 text-muted-foreground" />
                       </Button>
+                    ) : slot.status === "timeout" ? (
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* 超时可续查：上游可能已完成，用保留的 taskId 再查一轮 */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs gap-1 press text-amber-600 hover:bg-amber-500/10"
+                          onClick={() => onResumeTask(slot.id)}
+                          aria-label={`继续等待第 ${slot.slot + 1} 张`}
+                        >
+                          <RotateCw className="w-3 h-3" />
+                          继续等待
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-6 h-6 press hover:bg-accent/60"
+                          onClick={() => onDismissTask(slot.id)}
+                          aria-label={`忽略第 ${slot.slot + 1} 张`}
+                        >
+                          <X className="w-3.5 h-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
                     ) : (
                       <span className="w-6 h-6 shrink-0" />
                     )}

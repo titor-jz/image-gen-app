@@ -64,6 +64,7 @@ export type GenTaskStatus =
   | "polling" // 已拿到 task_id，指数退避轮询中
   | "success" // 成功，result 已就绪
   | "failed" // 上游/轮询/下载失败
+  | "timeout" // 轮询超时：上游可能仍在生成，保留 taskId 供「继续等待」
   | "cancelled"; // 用户主动取消
 
 export interface GenTask {

@@ -89,7 +89,7 @@ export default function Home() {
   // 5. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
     results, loading, error, tasks,
-    handleGenerate, cancelTask, setResults,
+    handleGenerate, cancelTask, resumeTask, dismissTask, setResults,
   } = useImageGeneration({
     prompt,
     referenceImages,
@@ -190,6 +190,8 @@ export default function Home() {
               onNodeBChange={setNodeBId}
               tasks={tasks}
               onCancelTask={cancelTask}
+              onResumeTask={resumeTask}
+              onDismissTask={dismissTask}
               onGenerate={handleGenerate}
             />
           </div>

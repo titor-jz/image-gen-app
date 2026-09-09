@@ -42,6 +42,8 @@ interface EditState {
   baseUrl: string;
   apiKey: string;
   proxyUrl: string;
+  /** 逗号/换行分隔的自定义模型 id（文本态） */
+  customModelsText: string;
 }
 
 const EMPTY_EDIT: EditState = {
@@ -50,10 +52,30 @@ const EMPTY_EDIT: EditState = {
   baseUrl: "",
   apiKey: "",
   proxyUrl: "",
+  customModelsText: "",
 };
 
 function toEdit(p: ApiProfile): EditState {
-  return { id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: p.apiKey, proxyUrl: p.proxyUrl };
+  return {
+    id: p.id,
+    name: p.name,
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    proxyUrl: p.proxyUrl,
+    customModelsText: (p.customModels ?? []).join(", "),
+  };
+}
+
+/** 文本 → 模型 id 数组（按逗号/顿号/换行/空格切分，去重去空） */
+function parseCustomModels(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[,，、\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    ),
+  ];
 }
 
 export function SettingsDialog() {
@@ -111,6 +133,7 @@ export function SettingsDialog() {
       baseUrl: edit.baseUrl.trim(),
       apiKey: edit.apiKey.trim(),
       proxyUrl: edit.proxyUrl.trim(),
+      customModels: parseCustomModels(edit.customModelsText),
     });
     // 同步真实 id（新建 / 幽灵节点保存都会拿到新 id），避免重复创建
     setEditingId(savedId);
@@ -172,7 +195,8 @@ export function SettingsDialog() {
   };
 
   const dirty =
-    !!edit.apiKey.trim() || !!edit.baseUrl.trim() || !!edit.proxyUrl.trim() || !!edit.name.trim();
+    !!edit.apiKey.trim() || !!edit.baseUrl.trim() || !!edit.proxyUrl.trim() ||
+    !!edit.name.trim() || !!edit.customModelsText.trim();
 
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -319,6 +343,20 @@ export function SettingsDialog() {
                   setTestMessage("");
                 }}
               />
+            </div>
+            <div>
+              <label htmlFor="settings-custom-models" className="text-sm text-muted-foreground mb-1.5 block">
+                自定义模型（可选）
+              </label>
+              <Input
+                id="settings-custom-models"
+                placeholder="如 gpt-image-2.5-flare, gemini-3-pro-image-preview"
+                value={edit.customModelsText}
+                onChange={(e) => setEdit({ ...edit, customModelsText: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                上游模型列表未返回、或识别不到的生图模型可在此手动补充（逗号分隔）
+              </p>
             </div>
           </div>
 

@@ -44,7 +44,8 @@ import type { Quality, ReferenceImage } from "@/components/UnifiedInputCard";
 const CACHE_TTL_MS = 60 * 1000;
 const POLL_BASE_MS = 1000;
 const POLL_MAX_MS = 10 * 1000;
-const POLL_TIMEOUT_MS = 3 * 60 * 1000;
+/** 单轮轮询窗口。4K/高质量图常需 3 分钟以上，超时后可点「继续等待」再续一轮 */
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 /** 轮询连续失败容忍次数（网络抖动/serverless 冷启动 5xx 不应判死任务） */
 const MAX_POLL_FAILURES = 3;
 /** 终态任务在进度列表中保留展示的时长，过后淡出移除 */
@@ -90,6 +91,10 @@ export interface UseImageGenerationResult {
   handleGenerate: () => Promise<void>;
   /** 取消单个任务（abort 其 AbortController） */
   cancelTask: (id: string) => void;
+  /** 超时任务续一轮轮询（保留的 taskId 仍可能返回结果） */
+  resumeTask: (id: string) => void;
+  /** 从任务列表移除一条（仅用于超时/终态残留） */
+  dismissTask: (id: string) => void;
   setResults: React.Dispatch<React.SetStateAction<GenerateResult[]>>;
 }
 
@@ -211,6 +216,12 @@ export function useImageGeneration(
     resultsRef.current = results;
   });
 
+  // 最新任务列表（resumeTask/dismissTask 由事件触发，需读取当前值）
+  const tasksRef = useRef<GenTask[]>([]);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  });
+
   // loading 派生：只要有非终态任务即为 true
   const loading = useMemo(
     () =>
@@ -239,6 +250,92 @@ export function useImageGeneration(
   const cancelTask = useCallback((id: string) => {
     abortMapRef.current.get(id)?.abort();
   }, []);
+
+  /** 从任务列表移除一条（超时残留的清理，不做任何网络操作） */
+  const dismissTask = useCallback((id: string) => {
+    abortMapRef.current.get(id)?.abort();
+    abortMapRef.current.delete(id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  /**
+   * 超时任务续一轮轮询：上游任务可能已经完成，用保留的 taskId 再查一轮。
+   * 节点配置取自任务快照（跨节点对比时各任务节点不同）。
+   */
+  const resumeTask = useCallback((id: string) => {
+    const task = tasksRef.current.find((t) => t.id === id);
+    if (!task?.taskId) return;
+    const taskNode = task.node;
+    const controller = new AbortController();
+    abortMapRef.current.set(id, controller);
+    updateTask(id, { status: "polling", progress: 0, elapsedSec: 0, error: undefined });
+
+    void (async () => {
+      try {
+        const headers = buildApiHeaders({
+          apiKey: taskNode?.apiKey ?? apiKeyRef.current,
+          baseUrl: taskNode?.baseUrl ?? baseUrl,
+          proxyUrl: taskNode?.proxyUrl ?? proxyUrl,
+        });
+        const pollResult = await pollTaskResult(
+          task.taskId as string,
+          headers,
+          controller.signal,
+          (p, elapsed) => updateTask(id, { progress: p, elapsedSec: elapsed })
+        );
+        const result: GenerateResult = {
+          id: `gen-${Date.now()}-${task.slot}`,
+          b64_json: pollResult.b64,
+          imageUrl: pollResult.imageUrl,
+          mime: pollResult.mime,
+          prompt: task.prompt,
+          model: task.model,
+          nodeName: taskNode?.name,
+          size: task.size as AspectRatio,
+          compareGroup: task.compareGroup,
+          createdAt: Date.now(),
+        };
+        markTerminal(id, { status: "success", result, progress: 1 });
+        setResults((prev) => [...prev, result]);
+        // 只补历史，不写 60s 缓存：任务未记录当时的参考图，
+        // 用空参考图列表写缓存会让后续无图请求命中错误结果
+        addHistory({
+          id: genId("hist"),
+          params: {
+            prompt: task.prompt,
+            model: task.model,
+            size: task.size as AspectRatio,
+            quality: task.quality as Quality,
+            n: 1,
+          },
+          results: [{ ...result, imageUrl: undefined }],
+          createdAt: Date.now(),
+        }).catch(() => {});
+      } catch (err) {
+        const isAbort =
+          (err instanceof DOMException && err.name === "AbortError") ||
+          (err instanceof Error && err.name === "AbortError");
+        if (isAbort) {
+          markTerminal(id, { status: "cancelled" });
+        } else if (err instanceof ApiError && err.code === "TASK_TIMEOUT") {
+          // 又超时：保留任务行，可再次继续等待
+          updateTask(id, { status: "timeout", error: err.message });
+          toast.info("上游仍在生成，可稍后再次「继续等待」");
+        } else {
+          const msg =
+            err instanceof ApiError
+              ? err.message
+              : err instanceof Error
+              ? err.message
+              : getErrorMessage("UNKNOWN");
+          markTerminal(id, { status: "failed", error: msg });
+          toast.error("生成失败", { description: msg });
+        }
+      } finally {
+        abortMapRef.current.delete(id);
+      }
+    })();
+  }, [baseUrl, proxyUrl, updateTask, markTerminal]);
 
   const handleGenerate = useCallback(async () => {
     const apiKey = apiKeyRef.current;
@@ -495,6 +592,12 @@ export function useImageGeneration(
             (err instanceof Error && err.name === "AbortError");
           if (isAbort) {
             markTerminal(task.id, { status: "cancelled" });
+          } else if (err instanceof ApiError && err.code === "TASK_TIMEOUT") {
+            // 超时不判死：上游可能仍在生成，保留任务行（含 taskId）供「继续等待」
+            updateTask(task.id, { status: "timeout", error: err.message });
+            toast.info(`第 ${task.slot + 1} 张仍在生成中`, {
+              description: "可点击「继续等待」找回结果",
+            });
           } else {
             const msg =
               err instanceof ApiError
@@ -606,6 +709,8 @@ export function useImageGeneration(
     tasks,
     handleGenerate,
     cancelTask,
+    resumeTask,
+    dismissTask,
     setResults: revokeAwareSetResults(revokeAllBlobUrls, setResults),
   };
 }
