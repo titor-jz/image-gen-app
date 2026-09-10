@@ -74,6 +74,8 @@ export function useModels(): UseModelsResult {
     if (!apiKey) return; // Key 未就绪/未配置时保持兜底列表，不发无鉴权请求
     let cancelled = false;
     void (async () => {
+      // 切换节点后立即清空旧节点的模型列表，避免新列表返回前展示过期模型
+      setModels([]);
       setLoading(true);
       try {
         const res = await fetch("/api/models", {

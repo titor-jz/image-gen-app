@@ -24,6 +24,8 @@ interface UnifiedInputCardProps {
   referenceImages: ReferenceImage[];
   /** 支持直接传新数组或函数式更新（批量上传并发追加时必须用函数式，避免旧闭包互相覆盖） */
   onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
+  /** 节点切换后新模型列表加载中（chip 显示加载提示，避免误以为旧列表可用） */
+  modelsLoading?: boolean;
   models: ModelInfo[];
   selectedModel: string;
   onModelChange: (m: string) => void;
@@ -121,11 +123,14 @@ function SelectChip<T extends string>({
   onChange,
   options,
   className = "",
+  displayLabel,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: { value: T; label: string }[];
   className?: string;
+  /** 覆盖触发按钮文案（如列表加载中时显示「模型加载中…」） */
+  displayLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -156,7 +161,7 @@ function SelectChip<T extends string>({
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span>{current?.label}</span>
+        <span className={displayLabel ? "text-muted-foreground" : ""}>{displayLabel ?? current?.label}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-base ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -182,7 +187,7 @@ function SelectChip<T extends string>({
 
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
-  models, selectedModel, onModelChange, selectedSize, onSizeChange,
+  models, modelsLoading, selectedModel, onModelChange, selectedSize, onSizeChange,
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
@@ -470,11 +475,12 @@ export function UnifiedInputCard({
           <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(",")} multiple className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
 
-          {/* 模型选择 */}
+          {/* 模型选择（节点切换后加载中显示提示，避免误用旧节点模型列表） */}
           <SelectChip
             value={selectedModel}
             onChange={onModelChange}
             options={models.map((m) => ({ value: m.id, label: m.name }))}
+            displayLabel={modelsLoading && models.length === 0 ? "模型加载中…" : undefined}
           />
 
           {/* 对比开关:复用 toolbar-chip 保持圆角统一,激活态用 toolbar-chip-active */}

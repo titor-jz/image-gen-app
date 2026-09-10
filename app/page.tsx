@@ -81,7 +81,13 @@ export default function Home() {
     : null;
 
   // 3. 数据：模型列表
-  const { models } = useModels();
+  const { models, loading: modelsLoading } = useModels();
+
+  // 节点切换后、新列表返回前，上次选中的模型可能不存在于新节点。
+  // 渲染期派生为列表内第一个可用模型，避免拿过期模型名发起生成。
+  const effectiveModel = models.some((m) => m.id === selectedModel)
+    ? selectedModel
+    : models[0]?.id ?? selectedModel;
 
   // 4. 启动时检测未完成的任务
   useInFlightRecovery();
@@ -93,7 +99,7 @@ export default function Home() {
   } = useImageGeneration({
     prompt,
     referenceImages,
-    model: selectedModel,
+    model: effectiveModel,
     size: selectedSize,
     quality: selectedQuality,
     n: selectedN,
@@ -172,7 +178,8 @@ export default function Home() {
               referenceImages={referenceImages}
               onReferenceImagesChange={setReferenceImages}
               models={models}
-              selectedModel={selectedModel}
+              selectedModel={effectiveModel}
+              modelsLoading={modelsLoading}
               onModelChange={setSelectedModel}
               selectedSize={selectedSize}
               onSizeChange={setSelectedSize}
