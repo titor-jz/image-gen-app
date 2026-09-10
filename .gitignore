@@ -62,3 +62,4 @@ generate-*.js
 
 # local scripts
 启动.bat
+.test-images/
