@@ -190,6 +190,8 @@ export function UnifiedInputCard({
   onGenerate,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
+  /** 整卡拖放：拖文件悬停在卡片任意位置时高亮（区别于小虚线框的 isDragging） */
+  const [cardDragOver, setCardDragOver] = useState(false);
   const [imgError, setImgError] = useState<string | null>(null);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
@@ -287,7 +289,7 @@ export function UnifiedInputCard({
   }, [onReferenceImagesChange]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setIsDragging(false);
+    e.preventDefault(); setIsDragging(false); setCardDragOver(false);
     const files = Array.from(e.dataTransfer.files);
     const remaining = MAX_COUNT - referenceImages.length;
     for (const file of files.slice(0, remaining)) processFile(file);
@@ -345,7 +347,30 @@ export function UnifiedInputCard({
   const isFull = referenceImages.length >= MAX_COUNT;
 
   return (
-    <div className="input-card p-0 overflow-hidden transition-slow hover:shadow-xl">
+    <div
+      className={`input-card relative p-0 overflow-hidden transition-slow hover:shadow-xl ${cardDragOver ? "ring-2 ring-primary/50" : ""}`}
+      // 整卡拖放：只接管文件拖拽（types 含 Files），文字拖入文本框不受影响
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setCardDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        // 在卡片内部子元素间移动会冒泡 dragleave，只有真正离开卡片才取消高亮
+        if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setCardDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        handleDrop(e);
+      }}
+    >
+      {cardDragOver && (
+        <div className="absolute inset-x-0 top-0 z-30 bg-primary/90 text-primary-foreground text-xs text-center py-1.5 pointer-events-none animate-fade-in">
+          松开鼠标，添加为参考图
+        </div>
+      )}
       {/* 上半部分：提示词输入 + 参考图 */}
       <div className="p-5 pb-3">
         {/* 参考图缩略图行 */}
