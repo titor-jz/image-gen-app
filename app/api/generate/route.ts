@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FormData as UndiciFormData } from "undici";
-import { httpFormDataRequest } from "@/lib/http-client";
+import { httpRequest, httpFormDataRequest, httpJsonPost } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
 
 // gpt-image-2 支持的尺寸
@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     const url = `${baseURL}/images/generations/async`;
+    const syncUrl = `${baseURL}/images/generations`;
     // 用 undici 的 FormData（与 http-client 的 RequestInit 类型对齐）
     const form = new UndiciFormData();
     form.append("model", model);
@@ -105,6 +106,34 @@ export async function POST(request: NextRequest) {
         { Authorization: `Bearer ${apiKey}` },
         proxyUrl
       );
+      // 部分中转只实现了 OpenAI 标准同步端点（/v1/images/generations），
+      // 没有 async 端点（404/405）。此时回落同步：改用标准 OpenAI JSON 格式
+      // （不带 response_format/quality 等 dall-e 参数，避免中转误路由到 dall-e
+      // 通道报 503 No available channel），有参考图时仍走 multipart。
+      if (res.status === 404 || res.status === 405) {
+        console.log("[generate] 上游无异步端点, 回落同步 /images/generations");
+        if (imageFiles.length > 0) {
+          res = await httpFormDataRequest(
+            syncUrl,
+            form,
+            { Authorization: `Bearer ${apiKey}` },
+            proxyUrl
+          );
+        } else {
+          const payload: Record<string, unknown> = {
+            model,
+            prompt,
+            size: sizeMap[size] === "auto" ? "auto" : sizeMap[size],
+            n: 1,
+          };
+          res = await httpJsonPost(
+            syncUrl,
+            payload,
+            { Authorization: `Bearer ${apiKey}` },
+            proxyUrl
+          );
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";
       console.error("[generate] 请求上游 API 失败:", msg, err);
@@ -143,16 +172,42 @@ export async function POST(request: NextRequest) {
     }
 
     const taskId = data?.data?.task_id || data?.task_id;
-    if (!taskId) {
-      console.error("[generate] 上游响应中未找到 task_id:", data);
-      const { body, status } = errorResponse("GEN_UPSTREAM_NO_TASK_ID");
-      return NextResponse.json({ error: body }, { status });
+    if (taskId) {
+      // 异步分支：提交成功，客户端拿 task_id 轮询
+      return NextResponse.json({
+        task_id: taskId,
+        status: "PENDING",
+      });
     }
 
-    return NextResponse.json({
-      task_id: taskId,
-      status: "PENDING",
-    });
+    // 同步分支：上游直接返回成图（OpenAI 标准格式 data[].url / data[].b64_json）。
+    // 图片可能是外链 URL，客户端无法带鉴权头下载，这里代理取回并转成 base64 透传，
+    // 复用前端已有的 images[] 同步处理路径。
+    const first = Array.isArray(data?.data) ? data.data[0] : undefined;
+    if (first) {
+      let b64Json: string | undefined = first.b64_json;
+      if (!b64Json && typeof first.url === "string") {
+        try {
+          const imgRes = await httpRequest(first.url, { proxyUrl: proxyUrl || undefined });
+          if (imgRes.status >= 200 && imgRes.status < 300 && imgRes.bodyBuffer) {
+            b64Json = imgRes.bodyBuffer.toString("base64");
+          } else {
+            console.error("[generate] 同步分支下载图片失败:", imgRes.status);
+          }
+        } catch (err) {
+          console.error("[generate] 同步分支下载图片异常:", err);
+        }
+      }
+      if (b64Json) {
+        return NextResponse.json({
+          images: [{ b64_json: b64Json, mime: "image/png" }],
+        });
+      }
+    }
+
+    console.error("[generate] 上游响应中未找到 task_id 或图片数据:", data);
+    const { body, status } = errorResponse("GEN_UPSTREAM_NO_TASK_ID");
+    return NextResponse.json({ error: body }, { status });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "未知错误";
     console.error("[generate] 未知异常:", error);
