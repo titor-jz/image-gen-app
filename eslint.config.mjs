@@ -11,10 +11,11 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    // OpenNext/Cloudflare 构建产物
+    ".open-next/**",
     "next-env.d.ts",
-    // Electron 主进程/preload 与构建脚本运行在 Node CommonJS 上下文，
+    // scripts/ 下的构建脚本运行在 Node CommonJS 上下文，
     // 必须使用 require()，ESM 规则 @typescript-eslint/no-require-imports 不适用
-    "electron/**",
     "scripts/**",
   ]),
 ]);

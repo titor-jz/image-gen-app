@@ -69,7 +69,7 @@ function HistoryItem({ record, onClick, onDelete }: {
 
 export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
   const [records, setRecords] = useState<HistoryRecord[]>([]);
-  // 清空历史的两步确认状态（不用 window.confirm：Electron 对原生对话框支持差）
+  // 清空历史的两步确认状态（应用内联确认，不用 window.confirm 弹窗）
   const [confirmingClear, setConfirmingClear] = useState(false);
 
   const loadHistory = useCallback(async () => {
