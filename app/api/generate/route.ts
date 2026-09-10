@@ -106,29 +106,46 @@ export async function POST(request: NextRequest) {
         { Authorization: `Bearer ${apiKey}` },
         proxyUrl
       );
-      // 部分中转只实现了 OpenAI 标准同步端点（/v1/images/generations），
-      // 没有 async 端点（404/405）。此时回落同步：改用标准 OpenAI JSON 格式
-      // （不带 response_format/quality 等 dall-e 参数，避免中转误路由到 dall-e
-      // 通道报 503 No available channel），有参考图时仍走 multipart。
+      // 部分中转只实现了 OpenAI 标准同步端点，没有 async 端点（404/405）。
+      // 此时回落同步，且必须按用途分端点 + 精简参数：
+      //  - 图生图走标准 /v1/images/edits（multipart: model/prompt/size/image）。
+      //    带图的 /generations、或携带 response_format/quality 参数，
+      //    都会被 NewAPI 系中转识别为 dall-e 请求 → 503 No available channel
+      //  - 纯文生图走 /v1/images/generations（JSON: model/prompt/size/n）
       if (res.status === 404 || res.status === 405) {
-        console.log("[generate] 上游无异步端点, 回落同步 /images/generations");
+        console.log("[generate] 上游无异步端点, 回落同步端点");
         if (imageFiles.length > 0) {
+          console.log("[generate] 图生图 → /images/edits");
+          const editForm = new UndiciFormData();
+          editForm.append("model", model);
+          editForm.append("prompt", prompt);
+          editForm.append("size", sizeMap[size] || "auto");
+          for (let i = 0; i < imageFiles.length; i++) {
+            const file = imageFiles[i];
+            if (file instanceof Blob) {
+              editForm.append(
+                "image",
+                file,
+                (file as File).name || `input_${i}.png`
+              );
+            }
+          }
           res = await httpFormDataRequest(
-            syncUrl,
-            form,
+            `${baseURL}/images/edits`,
+            editForm,
             { Authorization: `Bearer ${apiKey}` },
             proxyUrl
           );
         } else {
-          const payload: Record<string, unknown> = {
-            model,
-            prompt,
-            size: sizeMap[size] === "auto" ? "auto" : sizeMap[size],
-            n: 1,
-          };
+          console.log("[generate] 文生图 → /images/generations (JSON)");
           res = await httpJsonPost(
             syncUrl,
-            payload,
+            {
+              model,
+              prompt,
+              size: sizeMap[size] === "auto" ? "auto" : sizeMap[size],
+              n: 1,
+            },
             { Authorization: `Bearer ${apiKey}` },
             proxyUrl
           );
