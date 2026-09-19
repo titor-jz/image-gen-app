@@ -212,7 +212,7 @@ export function SettingsDialog() {
           </Button>
         }
       />
-      <DialogContent className="bg-card border-border animate-scale-in max-w-lg">
+      <DialogContent className="bg-card border-border animate-scale-in max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>API 节点设置</DialogTitle>
         </DialogHeader>

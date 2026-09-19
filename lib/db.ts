@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from "idb";
-import type { HistoryRecord, GenerateResult } from "./types";
+import type { HistoryRecord, GenerateResult, GenTask } from "./types";
 
 const DB_NAME = "image-gen-db";
 const DB_VERSION = 3;
@@ -36,6 +36,27 @@ export interface InFlightEntry {
   taskId?: string;
   startedAt: number;
   updatedAt: number;
+  /**
+   * 批次任务快照（跨会话恢复用）：一次生成点击的所有 GenTask 最小集，
+   * 含各自的 taskId 与节点快照。恢复时凭 taskId 续轮询，绝不重新提交。
+   */
+  tasks?: InFlightTaskSnapshot[];
+}
+
+/** GenTask 的可持久化最小集（剔除内存态 status/progress 等） */
+export interface InFlightTaskSnapshot {
+  id: string;
+  batchId: string;
+  slot: number;
+  prompt: string;
+  model: string;
+  size: string;
+  quality: string;
+  compareGroup?: string;
+  /** 上游异步任务 id（提交成功后写入；无此值的任务无法恢复） */
+  taskId?: string;
+  /** 提交时定格的节点配置（轮询 headers 必须用提交时的节点） */
+  node?: GenTask["node"];
 }
 
 async function getDB(): Promise<IDBPDatabase> {
@@ -255,6 +276,19 @@ export async function updateInFlightStatus(
   const existing = (await db.get(IN_FLIGHT_STORE, id)) as InFlightEntry | undefined;
   if (!existing) return;
   await db.put(IN_FLIGHT_STORE, { ...existing, ...patch, updatedAt: Date.now() });
+}
+
+/**
+ * 写入批次任务快照（提交时写入，拿到上游 taskId 后更新对应项）
+ */
+export async function updateInFlightTasks(
+  id: string,
+  tasks: InFlightTaskSnapshot[]
+): Promise<void> {
+  const db = await getDB();
+  const existing = (await db.get(IN_FLIGHT_STORE, id)) as InFlightEntry | undefined;
+  if (!existing) return;
+  await db.put(IN_FLIGHT_STORE, { ...existing, tasks, updatedAt: Date.now() });
 }
 
 /**

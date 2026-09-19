@@ -53,11 +53,11 @@ function HistoryItem({ record, onClick, onDelete }: {
           <span className="text-xs text-muted-foreground">{time}</span>
         </div>
       </div>
-      {/* 单条删除：hover 出现，阻止冒泡避免触发回填 */}
+      {/* 单条删除：触屏无 hover，移动端常驻显示；桌面保留 hover 显隐 */}
       <Button
         variant="ghost"
         size="icon"
-        className="w-6 h-6 opacity-0 group-hover:opacity-100 press transition-base hover:bg-destructive/10 shrink-0"
+        className="w-9 h-9 sm:w-6 sm:h-6 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 press transition-base hover:bg-destructive/10 shrink-0"
         onClick={(e) => { e.stopPropagation(); onDelete(record.id); }}
         aria-label={`删除 ${record.params.prompt.slice(0, 10)} 的记录`}
       >
@@ -120,8 +120,8 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="fixed top-0 left-0 z-50 w-80 h-full bg-card border-r border-border shadow-2xl flex flex-col animate-drawer-in" role="dialog" aria-label="历史记录">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="fixed top-0 left-0 z-50 w-full sm:w-80 h-full bg-card border-r border-border shadow-2xl flex flex-col animate-drawer-in" role="dialog" aria-label="历史记录">
+        <div className="flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 border-b border-border">
           <span className="text-sm font-medium">对话列表</span>
           <div className="flex items-center gap-1">
             <Button
@@ -138,7 +138,7 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
           </div>
         </div>
         <ScrollArea className="flex-1 scrollbar-thin">
-          <div className="p-2 space-y-0.5">
+          <div className="p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] space-y-0.5">
             {records.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-in">
                 <ImageIcon className="w-8 h-8 mb-2 opacity-50" />

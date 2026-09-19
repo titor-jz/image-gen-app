@@ -26,6 +26,9 @@ import {
   releaseInFlight,
   setPromptCache,
   updateInFlightStatus,
+  updateInFlightTasks,
+  type InFlightEntry,
+  type InFlightTaskSnapshot,
 } from "@/lib/db";
 import {
   getErrorMessage,
@@ -93,6 +96,11 @@ export interface UseImageGenerationResult {
   cancelTask: (id: string) => void;
   /** 超时任务续一轮轮询（保留的 taskId 仍可能返回结果） */
   resumeTask: (id: string) => void;
+  /**
+   * 跨会话恢复：把上一会话未完成批次（页面被杀）凭持久化快照复活，
+   * 只续轮询、绝不重新提交（防重复扣费）。返回实际恢复的任务数。
+   */
+  recoverInFlight: (entries: InFlightEntry[]) => number;
   /** 从任务列表移除一条（仅用于超时/终态残留） */
   dismissTask: (id: string) => void;
   setResults: React.Dispatch<React.SetStateAction<GenerateResult[]>>;
@@ -259,16 +267,14 @@ export function useImageGeneration(
   }, []);
 
   /**
-   * 超时任务续一轮轮询：上游任务可能已经完成，用保留的 taskId 再查一轮。
+   * 按任务快照执行一轮完整轮询直到终态（resumeTask 与跨会话恢复共用）。
    * 节点配置取自任务快照（跨节点对比时各任务节点不同）。
    */
-  const resumeTask = useCallback((id: string) => {
-    const task = tasksRef.current.find((t) => t.id === id);
-    if (!task?.taskId) return;
+  const pollToCompletion = useCallback((task: GenTask) => {
+    const id = task.id;
     const taskNode = task.node;
     const controller = new AbortController();
     abortMapRef.current.set(id, controller);
-    updateTask(id, { status: "polling", progress: 0, elapsedSec: 0, error: undefined });
 
     void (async () => {
       try {
@@ -336,6 +342,58 @@ export function useImageGeneration(
       }
     })();
   }, [baseUrl, proxyUrl, updateTask, markTerminal]);
+
+  /**
+   * 超时任务续一轮轮询：上游任务可能已经完成，用保留的 taskId 再查一轮。
+   */
+  const resumeTask = useCallback((id: string) => {
+    const task = tasksRef.current.find((t) => t.id === id);
+    if (!task?.taskId) return;
+    updateTask(id, { status: "polling", progress: 0, elapsedSec: 0, error: undefined });
+    pollToCompletion(task);
+  }, [updateTask, pollToCompletion]);
+
+  /**
+   * 跨会话恢复：页面被杀后，凭 in-flight 快照里持久化的 taskId 续轮询。
+   * 只查结果，不重新提交（重复提交 = 重复扣费）。
+   * 恢复即释放占位：后续生死由任务行接管（超时可「继续等待」）。
+   */
+  const recoverInFlight = useCallback((entries: InFlightEntry[]): number => {
+    const revived: GenTask[] = [];
+    const releasedIds: string[] = [];
+    for (const entry of entries) {
+      const snaps = (entry.tasks ?? []).filter((s) => s.taskId);
+      if (snaps.length === 0) continue;
+      for (const snap of snaps) {
+        const task: GenTask = {
+          id: snap.id,
+          batchId: snap.batchId,
+          slot: snap.slot,
+          prompt: snap.prompt,
+          model: snap.model,
+          size: snap.size,
+          quality: snap.quality,
+          status: "polling",
+          progress: 0,
+          elapsedSec: 0,
+          taskId: snap.taskId,
+          compareGroup: snap.compareGroup,
+          node: snap.node,
+          createdAt: Date.now(),
+        };
+        revived.push(task);
+        pollToCompletion(task);
+      }
+      releasedIds.push(entry.id);
+    }
+    if (revived.length > 0) {
+      setTasks((prev) => [...prev, ...revived]);
+      for (const id of releasedIds) {
+        releaseInFlight(id).catch(() => {});
+      }
+    }
+    return revived.length;
+  }, [pollToCompletion]);
 
   const handleGenerate = useCallback(async () => {
     const apiKey = apiKeyRef.current;
@@ -457,6 +515,21 @@ export function useImageGeneration(
       }));
       setTasks((prev) => [...prev, ...newTasks]);
 
+      // 批次任务快照入库：跨会话恢复的数据源。
+      // 提交成功拿到上游 taskId 时就地更新对应项（见 runTask 异步分支）。
+      const taskSnapshots: InFlightTaskSnapshot[] = newTasks.map((t) => ({
+        id: t.id,
+        batchId: t.batchId,
+        slot: t.slot,
+        prompt: t.prompt,
+        model: t.model,
+        size: t.size,
+        quality: t.quality,
+        compareGroup: t.compareGroup,
+        node: t.node,
+      }));
+      updateInFlightTasks(inFlightId, taskSnapshots).catch(() => {});
+
       // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
       // 携带产出它的节点快照，供按「节点+模型」分组写缓存
       const completed: Array<{ result: GenerateResult; node: GenTask["node"] }> = [];
@@ -543,6 +616,12 @@ export function useImageGeneration(
           if (data.task_id) {
             updateTask(task.id, { status: "polling", taskId: data.task_id });
             await updateInFlightStatus(inFlightId, { status: "polling" });
+            // 快照补记 taskId：页面被杀后恢复轮询的依据
+            const snap = taskSnapshots.find((s) => s.id === task.id);
+            if (snap) {
+              snap.taskId = data.task_id;
+              updateInFlightTasks(inFlightId, taskSnapshots).catch(() => {});
+            }
             const pollResult = await pollTaskResult(
               data.task_id,
               headers,
@@ -710,6 +789,7 @@ export function useImageGeneration(
     handleGenerate,
     cancelTask,
     resumeTask,
+    recoverInFlight,
     dismissTask,
     setResults: revokeAwareSetResults(revokeAllBlobUrls, setResults),
   };

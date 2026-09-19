@@ -228,7 +228,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
       {/* 展开的完整预览 */}
       {expandedIndex !== null && (
         <div className="rounded-xl border border-border bg-card/50 overflow-hidden animate-scale-in">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -312,7 +312,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
             </div>
           </div>
 
-          <div className="flex items-center justify-center p-4 overflow-auto max-h-[70vh]">
+          <div className="flex items-center justify-center p-2 sm:p-4 overflow-auto max-h-[70dvh]">
             <FadeInImage
               src={getImageSrc(results[expandedIndex])}
               alt={results[expandedIndex].prompt}
@@ -365,7 +365,8 @@ function ResultCard({
       >
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+      {/* 下载按钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐 */}
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
         <Button
           variant="secondary"
           size="icon"

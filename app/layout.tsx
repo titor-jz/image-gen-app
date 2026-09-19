@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ApiConfigProvider } from "@/lib/api-config-context";
@@ -17,6 +17,23 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI Image Gen",
   description: "Personal AI image generation tool powered by GPT-Image2",
+  appleWebApp: {
+    capable: true,
+    title: "AI 生图",
+    statusBarStyle: "default",
+  },
+};
+
+// viewportFit cover：PWA standalone 模式下内容延伸到状态栏/手势条，
+// 配合组件内 env(safe-area-inset-*) 留白
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b121a" },
+  ],
 };
 
 export default function RootLayout({
@@ -40,7 +57,7 @@ export default function RootLayout({
             useImageGeneration 等组件共享 API Key / Base URL / Proxy URL 状态。 */}
         <ApiConfigProvider>
           {children}
-          <Toaster position="bottom-right" richColors closeButton />
+          <Toaster richColors closeButton />
         </ApiConfigProvider>
       </body>
     </html>

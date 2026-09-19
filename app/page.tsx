@@ -89,13 +89,10 @@ export default function Home() {
     ? selectedModel
     : models[0]?.id ?? selectedModel;
 
-  // 4. 启动时检测未完成的任务
-  useInFlightRecovery();
-
-  // 5. 核心生成流程（任务级状态：并发 + 单张取消）
+  // 4. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
     results, loading, error, tasks,
-    handleGenerate, cancelTask, resumeTask, dismissTask, setResults,
+    handleGenerate, cancelTask, resumeTask, recoverInFlight, dismissTask, setResults,
   } = useImageGeneration({
     prompt,
     referenceImages,
@@ -115,6 +112,10 @@ export default function Home() {
       proxyUrl: nodeB.proxyUrl,
     } : null,
   });
+
+  // 5. 启动时检测并恢复未完成的任务：凭持久化快照的 taskId 续轮询，
+  //    不重新提交（重复提交 = 重复扣费）
+  useInFlightRecovery({ onRecover: recoverInFlight });
 
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
@@ -148,7 +149,7 @@ export default function Home() {
   }, [setResults]);
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-dvh bg-background">
       <Header onShowHistory={() => setShowHistory(true)} />
 
       {showHistory && (
@@ -159,10 +160,10 @@ export default function Home() {
       )}
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 pt-10 space-y-8">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 space-y-8">
           {/* 大标题 */}
           <div className="text-center space-y-2 animate-fade-up">
-            <h1 className="text-4xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
               智能生图
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -206,7 +207,7 @@ export default function Home() {
         </div>
 
         {/* 错误提示 + 输出图库：使用更宽容器，图片多时不会挤在窄栏里 */}
-        <div className="max-w-6xl mx-auto px-6 pt-6 pb-10 space-y-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] space-y-6">
           {/* 错误提示 */}
           {error && (
             <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-start gap-2">
@@ -216,7 +217,7 @@ export default function Home() {
           )}
 
           {/* 输出图库 */}
-          <div className="animate-fade-up [animation-delay:120ms] input-card p-5">
+          <div className="animate-fade-up [animation-delay:120ms] input-card p-3 sm:p-5">
             <ResultGrid results={results} hasRunning={loading} />
           </div>
         </div>

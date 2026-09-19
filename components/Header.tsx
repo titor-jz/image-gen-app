@@ -76,7 +76,7 @@ function NodeSwitcher() {
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 press max-w-44"
+        className="gap-1.5 press max-w-28 sm:max-w-44"
         onClick={() => setOpen((p) => !p)}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -150,15 +150,16 @@ export function Header({ onShowHistory }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border/50">
-      <div className="flex items-center justify-between px-6 py-4 max-w-3xl mx-auto">
+      <div className="flex items-center justify-between px-4 sm:px-6 pt-[max(1rem,env(safe-area-inset-top))] pb-4 max-w-3xl mx-auto">
       <Button
         variant="ghost"
         size="sm"
         className="gap-2 press"
         onClick={onShowHistory}
+        aria-label="历史记录"
       >
         <Clock className="w-4 h-4" />
-        <span className="text-sm">对话列表</span>
+        <span className="text-sm hidden sm:inline">对话列表</span>
       </Button>
 
       <div className="flex items-center gap-1">

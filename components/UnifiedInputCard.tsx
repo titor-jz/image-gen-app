@@ -165,7 +165,7 @@ function SelectChip<T extends string>({
         <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-base ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-0 min-w-full bg-popover border border-border rounded-xl shadow-xl py-1 z-50 animate-fade-up max-h-60 overflow-y-auto scrollbar-thin">
+        <div className="absolute bottom-full mb-2 left-0 min-w-full max-w-[calc(100vw-3rem)] bg-popover border border-border rounded-xl shadow-xl py-1 z-50 animate-fade-up max-h-60 overflow-y-auto scrollbar-thin">
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -175,7 +175,7 @@ function SelectChip<T extends string>({
               role="option"
               aria-selected={opt.value === value}
             >
-              <span className="flex-1 text-left whitespace-nowrap">{opt.label}</span>
+              <span className="flex-1 text-left whitespace-nowrap truncate">{opt.label}</span>
               {opt.value === value && <Check className="w-3.5 h-3.5 text-primary" />}
             </button>
           ))}
@@ -395,7 +395,7 @@ export function UnifiedInputCard({
                   {/* 常驻显示的删除按钮：深底白叉 + 背景色描边，任何图片上都清晰可见 */}
                   <button
                     type="button"
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center shadow-md ring-2 ring-background press-sm transition-base hover:bg-destructive/90 hover:scale-110"
+                    className="absolute -top-2 -right-2 sm:-top-1.5 sm:-right-1.5 w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-destructive text-white flex items-center justify-center shadow-md ring-2 ring-background press-sm transition-base hover:bg-destructive/90 hover:scale-110"
                     onClick={() => removeImage(img.id)}
                     aria-label={`删除 ${img.name}`}
                   >
@@ -463,12 +463,12 @@ export function UnifiedInputCard({
         {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
       </div>
 
-      {/* 下半部分：参数工具栏 */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-border/50 bg-background/30">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* 下半部分：参数工具栏。小屏纵向堆叠：chips 换行铺满，生成按钮整行置底（拇指易达） */}
+      <div className="flex flex-col gap-2 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border/50 bg-background/30 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 flex-wrap w-full">
           {/* 添加图片按钮 */}
           {!isFull && (
-            <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full press transition-base hover:bg-accent/60" onClick={() => fileInputRef.current?.click()} aria-label="添加图片">
+            <Button variant="ghost" size="icon" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full press transition-base hover:bg-accent/60" onClick={() => fileInputRef.current?.click()} aria-label="添加图片">
               <Upload className="w-4 h-4" />
             </Button>
           )}
@@ -549,7 +549,7 @@ export function UnifiedInputCard({
         <Button
           onClick={onGenerate}
           disabled={!prompt.trim()}
-          className="h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
+          className="h-11 w-full sm:w-auto sm:h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
         >
           <span className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
@@ -663,7 +663,7 @@ export function UnifiedInputCard({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="w-6 h-6 shrink-0 press hover:bg-accent/60"
+                        className="w-8 h-8 sm:w-6 sm:h-6 shrink-0 press hover:bg-accent/60"
                         onClick={() => onCancelTask(slot.id)}
                         aria-label={`取消第 ${slot.slot + 1} 张`}
                       >
@@ -675,7 +675,7 @@ export function UnifiedInputCard({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-xs gap-1 press text-amber-600 hover:bg-amber-500/10"
+                          className="h-8 px-2 sm:h-6 text-xs gap-1 press text-amber-600 hover:bg-amber-500/10"
                           onClick={() => onResumeTask(slot.id)}
                           aria-label={`继续等待第 ${slot.slot + 1} 张`}
                         >
@@ -685,7 +685,7 @@ export function UnifiedInputCard({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="w-6 h-6 press hover:bg-accent/60"
+                          className="w-8 h-8 sm:w-6 sm:h-6 press hover:bg-accent/60"
                           onClick={() => onDismissTask(slot.id)}
                           aria-label={`忽略第 ${slot.slot + 1} 张`}
                         >
@@ -693,7 +693,7 @@ export function UnifiedInputCard({
                         </Button>
                       </div>
                     ) : (
-                      <span className="w-6 h-6 shrink-0" />
+                      <span className="w-8 h-8 sm:w-6 sm:h-6 shrink-0" />
                     )}
                   </div>
                 );
