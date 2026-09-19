@@ -34,6 +34,7 @@ import { useModels } from "@/hooks/useModels";
 import { useApiConfig } from "@/lib/api-config-context";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
+import { isCapacitor } from "@/lib/capacitor-env";
 import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
@@ -119,6 +120,33 @@ export default function Home() {
 
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
+
+  // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
+  //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）
+  useEffect(() => {
+    if (!isCapacitor()) return;
+    let removed = false;
+    let listener: { remove: () => Promise<void> } | undefined;
+    void (async () => {
+      try {
+        const { App } = await import("@capacitor/app");
+        if (removed) return;
+        listener = await App.addListener("backButton", () => {
+          if (showHistory) {
+            setShowHistory(false);
+          } else {
+            void App.exitApp();
+          }
+        });
+      } catch {
+        // 原生插件缺失（理论不可达，isCapacitor 已门控）：静默
+      }
+    })();
+    return () => {
+      removed = true;
+      void listener?.remove();
+    };
+  }, [showHistory]);
 
   // 7. 从历史记录回填（参考图不再恢复，需用户重新上传）
   const handleSelectRecord = useCallback((record: HistoryRecord) => {

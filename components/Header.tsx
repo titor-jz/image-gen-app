@@ -16,6 +16,7 @@ import dynamic from "next/dynamic";
 import { Sun, Moon, Clock, CheckCircle2, Server, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApiConfig } from "@/lib/api-config-context";
+import { isCapacitor } from "@/lib/capacitor-env";
 import { SettingsDialogSkeleton } from "./settings-dialog-skeleton";
 
 const SettingsDialog = dynamic(
@@ -40,6 +41,23 @@ function applyTheme(theme: Theme) {
   const html = document.documentElement;
   if (theme === "dark") html.classList.add("dark");
   else html.classList.remove("dark");
+  // Capacitor 壳内：系统状态栏颜色/图标明暗随主题同步。
+  // 浏览器 / PWA 无原生插件，isCapacitor 门控后连 import 都不发生。
+  if (isCapacitor()) {
+    void (async () => {
+      try {
+        const { StatusBar, Style } = await import("@capacitor/status-bar");
+        await StatusBar.setStyle({
+          style: theme === "dark" ? Style.Dark : Style.Light,
+        });
+        await StatusBar.setBackgroundColor({
+          color: theme === "dark" ? "#0b121a" : "#ffffff",
+        });
+      } catch {
+        // 插件调用失败（如 edge-to-edge 模式不支持设色）：不影响网页主题
+      }
+    })();
+  }
 }
 
 interface HeaderProps {

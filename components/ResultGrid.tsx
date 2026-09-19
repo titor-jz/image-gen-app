@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, ImageOff } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, ImageOff, FolderDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isCapacitor } from "@/lib/capacitor-env";
 import type { GenerateResult } from "@/lib/types";
 
 interface ResultGridProps {
@@ -60,6 +62,13 @@ function FadeInImage({
 export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
+  // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
+  const [canSaveToGallery, setCanSaveToGallery] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载后检测原生环境（SSR 首帧无 window.Capacitor）
+    setCanSaveToGallery(isCapacitor());
+  }, []);
 
   /**
    * 优先使用 blob URL（避免 base64 转 dataURL 的解码开销）
@@ -67,6 +76,21 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
    */
   const getImageSrc = (result: GenerateResult) =>
     result.imageUrl || `data:${result.mime};base64,${result.b64_json}`;
+
+  /** 保存原图到系统相册（仅 APP 环境；离线可用，数据来自本地 b64） */
+  const handleSaveToGallery = async (result: GenerateResult) => {
+    try {
+      const { Media } = await import("@capacitor-community/media");
+      await Media.savePhoto({
+        path: `data:${result.mime};base64,${result.b64_json}`,
+      });
+      toast.success("已保存到相册");
+    } catch (e) {
+      toast.error("保存到相册失败", {
+        description: e instanceof Error ? e.message : "请检查相册权限",
+      });
+    }
+  };
 
   const handleDownload = async (result: GenerateResult) => {
     try {
@@ -299,6 +323,19 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                 <Download className="w-4 h-4 mr-2" />
                 下载
               </Button>
+
+              {/* 保存到系统相册：仅 Capacitor 壳内显示 */}
+              {canSaveToGallery && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleSaveToGallery(results[expandedIndex])}
+                  className="press"
+                >
+                  <FolderDown className="w-4 h-4 mr-2" />
+                  保存到相册
+                </Button>
+              )}
 
               <Button
                 variant="ghost"
