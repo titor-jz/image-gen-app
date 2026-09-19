@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AI 生图</title>
+    <style>
+      * { margin: 0; box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        background: #ffffff; color: #1a1a1a;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center; padding: 24px;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0b121a; color: #f4f4f5; }
+      }
+      .box { max-width: 320px; }
+      .logo {
+        width: 88px; height: 88px; margin: 0 auto 20px; border-radius: 20px;
+        background: linear-gradient(135deg, #9090ff, #3287ff);
+        display: flex; align-items: center; justify-content: center;
+      }
+      h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+      p { font-size: 14px; opacity: 0.7; margin-bottom: 24px; line-height: 1.6; }
+      button {
+        padding: 12px 40px; border: none; border-radius: 999px;
+        background: #3287ff; color: #fff; font-size: 16px;
+      }
+      button:active { transform: scale(0.97); }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="logo">
+        <svg width="52" height="52" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M256 106 C 273 213 299 239 406 256 C 299 273 273 299 256 406 C 239 299 213 273 106 256 C 213 239 239 213 256 106 Z"
+            fill="#ffffff"
+          />
+        </svg>
+      </div>
+      <h1>AI 生图</h1>
+      <p>网络未连接，无法加载应用。<br />请检查网络后重试。</p>
+      <button onclick="location.reload()">重试</button>
+    </div>
+  </body>
+</html>

@@ -62,3 +62,6 @@ generate-*.js
 # local scripts
 启动.bat
 .test-images/
+
+# playwright mcp 测试产物
+.playwright-mcp/
