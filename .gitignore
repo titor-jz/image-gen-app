@@ -65,3 +65,6 @@ generate-*.js
 
 # playwright mcp 测试产物
 .playwright-mcp/
+
+# zcode 本地产物
+.zcode/
