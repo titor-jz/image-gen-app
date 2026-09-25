@@ -6,11 +6,12 @@
 
 2. **构建 APK**（二选一）：
    - **GitHub Actions（推荐，本机零环境）**：推送本分支到 GitHub → 仓库 Actions 页 → 「Android APK」→ Run workflow → 完成后在 Artifacts 下载 `imagegen-debug-apk`（首次构建约 5~10 分钟）；
-   - 本地构建：装 JDK 17 + Android SDK 后 `cd android && ./gradlew assembleDebug`。
+   - 本地构建：装 JDK 21 + Android SDK 后 `cd android && ./gradlew assembleDebug`（Capacitor 8 要求 JDK 21+，JDK 17 会报 invalid source release）。
 
 3. **真机验收**：
    - 安装 APK（允许未知来源）→ 启动应为星芒启动屏 → 进入全屏应用；
-   - 生成一张图 → 展开预览 → 应出现「保存到相册」按钮 → 点击后系统相册可见；
+   - **APP 内为独立存储：首次使用需在 APP 设置中重新配置 API Key**（浏览器里的配置与历史在 APP 内不可见，属 WebView 语义）；
+   - 生成一张图 → 展开预览 → 应出现「保存到相册」按钮 → 点击后系统相册可见（首次会自动创建「AI 生图」相册）；
    - 按系统返回键：历史抽屉开着时先关抽屉，再按则退出应用；
    - 切换深色模式：状态栏颜色应跟随（若 Android 15 edge-to-edge 下状态栏仍为网页自绘，属预期，双保险已生效）。
 
