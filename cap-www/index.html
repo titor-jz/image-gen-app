@@ -42,8 +42,10 @@
         </svg>
       </div>
       <h1>AI 生图</h1>
-      <p>网络未连接，无法加载应用。<br />请检查网络后重试。</p>
-      <button onclick="location.reload()">重试</button>
+      <p>网络未连接，无法加载应用。<br />请检查网络后重试；若重试仍失败，请退出应用重新打开。</p>
+      <!-- 必须跳回远程站点：本页是 server.errorPath 的本地兜底页，
+           reload 只会重新加载本页自身，永远出不去（评审 A-3 修复） -->
+      <button onclick="location.replace('https://image-gen-app-rho.vercel.app')">重试</button>
     </div>
   </body>
 </html>

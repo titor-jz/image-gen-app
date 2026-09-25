@@ -77,17 +77,33 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const getImageSrc = (result: GenerateResult) =>
     result.imageUrl || `data:${result.mime};base64,${result.b64_json}`;
 
-  /** 保存原图到系统相册（仅 APP 环境；离线可用，数据来自本地 b64） */
+  /** 保存原图到系统相册（仅 APP 环境；离线可用，数据来自本地 b64）。
+   *  Android 侧 albumIdentifier 必填：先查/建「AI 生图」相册。
+   *  createAlbum 无返回值，创建后需重新 getAlbums 取 identifier（见插件 definitions）。 */
   const handleSaveToGallery = async (result: GenerateResult) => {
     try {
       const { Media } = await import("@capacitor-community/media");
+      const ALBUM_NAME = "AI 生图";
+      const findAlbum = async () =>
+        (await Media.getAlbums()).albums.find((a) => a.name === ALBUM_NAME);
+      let album = await findAlbum();
+      if (!album) {
+        await Media.createAlbum({ name: ALBUM_NAME });
+        album = await findAlbum();
+      }
+      if (!album) {
+        throw new Error("相册创建失败");
+      }
       await Media.savePhoto({
         path: `data:${result.mime};base64,${result.b64_json}`,
+        albumIdentifier: album.identifier,
       });
       toast.success("已保存到相册");
     } catch (e) {
+      // 插件原文是英文（如 "Album identifier required"），不直接抛给用户
+      console.error("[gallery] 保存失败:", e);
       toast.error("保存到相册失败", {
-        description: e instanceof Error ? e.message : "请检查相册权限",
+        description: "请检查相册权限后重试",
       });
     }
   };

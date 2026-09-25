@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21 # Capacitor 8 强制 Java 21（JDK 17 会报 invalid source release）
 
       - name: 安装依赖
         run: npm ci

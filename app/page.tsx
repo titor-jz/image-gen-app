@@ -18,7 +18,7 @@
  * (hydration mismatch)，所以采用 useEffect 异步同步。
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
@@ -122,31 +122,44 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
 
   // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
-  //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）
+  //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）。
+  //     showHistory 经 ref 读取、监听器只在挂载时注册一次——
+  //     按 [showHistory] 重挂会在 cleanup 与 await 之间产生竞态，
+  //     快速开关抽屉会累积监听器（旧闭包捕获旧状态，见评审 A-4）。
+  const showHistoryRef = useRef(showHistory);
+  useEffect(() => {
+    showHistoryRef.current = showHistory;
+  }, [showHistory]);
+
   useEffect(() => {
     if (!isCapacitor()) return;
-    let removed = false;
+    let disposed = false;
     let listener: { remove: () => Promise<void> } | undefined;
     void (async () => {
       try {
         const { App } = await import("@capacitor/app");
-        if (removed) return;
-        listener = await App.addListener("backButton", () => {
-          if (showHistory) {
+        const l = await App.addListener("backButton", () => {
+          if (showHistoryRef.current) {
             setShowHistory(false);
           } else {
             void App.exitApp();
           }
         });
+        if (disposed) {
+          // 注册完成前组件已卸载：立即移除，避免泄漏
+          void l.remove();
+        } else {
+          listener = l;
+        }
       } catch {
         // 原生插件缺失（理论不可达，isCapacitor 已门控）：静默
       }
     })();
     return () => {
-      removed = true;
+      disposed = true;
       void listener?.remove();
     };
-  }, [showHistory]);
+  }, []);
 
   // 7. 从历史记录回填（参考图不再恢复，需用户重新上传）
   const handleSelectRecord = useCallback((record: HistoryRecord) => {

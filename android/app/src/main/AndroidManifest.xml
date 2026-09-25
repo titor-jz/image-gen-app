@@ -33,8 +33,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- @capacitor-community/media：保存生成图到系统相册（MediaStore） -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- @capacitor-community/media：保存生成图到系统相册（MediaStore）。
+         非 gallery 模式（本应用用法）运行时不需要存储权限；
+         仅保留旧设备（API≤28）传统写入口径。未来若启用插件 gallery 模式
+         （批量读相册），需按其 README 补 READ_MEDIA_IMAGES + READ_MEDIA_VIDEO。 -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 </manifest>
