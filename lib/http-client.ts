@@ -67,7 +67,9 @@ export async function httpFormDataRequest(
 }
 
 /**
- * POST JSON（OpenAI 标准格式）。同步生图耗时较长，超时放宽到 120s。
+ * POST JSON（OpenAI 标准格式）。
+ * 超时 55s：必须低于 Vercel serverless maxDuration（60s，见 vercel.json），
+ * 否则同步生图分支会先被平台杀掉，客户端只能看到连接中断。
  */
 export async function httpJsonPost(
   urlStr: string,
@@ -82,7 +84,7 @@ export async function httpJsonPost(
       ...extraHeaders,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(55000),
   };
   if (proxyUrl) {
     fetchInit.dispatcher = new ProxyAgent(proxyUrl);

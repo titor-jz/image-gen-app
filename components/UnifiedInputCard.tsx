@@ -82,7 +82,9 @@ const COUNTS: { value: string; label: string }[] = [
 const MAX_IMG_SIZE = 8 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_COUNT = 8;
-const COMPRESS_THRESHOLD = 1024 * 1024;
+// 压缩阈值 512KB：服务端上限 4MB（Vercel 平台限 4.5MB），8 张图最坏
+// 8×512KB≈4MB，压缩后单张约 150~400KB，实际余量充足（评审 S-4）
+const COMPRESS_THRESHOLD = 512 * 1024;
 const COMPRESS_MAX_EDGE = 1024;
 const COMPRESS_QUALITY = 0.85;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { httpRequest } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
+import { resolveUpstream } from "@/lib/upstream-config";
 
 export async function GET(
   request: NextRequest,
@@ -8,24 +9,24 @@ export async function GET(
 ) {
   try {
     const { taskId } = await params;
-    const apiKey =
-      request.headers.get("x-api-key") || process.env.OPENAI_API_KEY;
-    const baseURL =
-      request.headers.get("x-base-url") ||
-      process.env.OPENAI_BASE_URL ||
-      "https://api.openai.com/v1";
-    const proxyUrl = request.headers.get("x-proxy-url") || "";
+    const upstream = resolveUpstream(request);
+    if (!upstream.ok) {
+      const { body, status } = errorResponse(upstream.errorCode, upstream.reason);
+      return NextResponse.json({ error: body }, { status });
+    }
+    const { apiKey, baseURL, proxyUrl } = upstream;
 
     if (!apiKey) {
       const { body, status } = errorResponse("AUTH_MISSING_KEY");
       return NextResponse.json({ error: body }, { status });
     }
-    if (!taskId) {
-      const { body, status } = errorResponse("REQ_BAD_FORMAT", "缺少任务 ID");
+    // 长度上限 + 编码：taskId 来自上游，直接拼接可被 `..%2F` 越出路径前缀（评审 S-6）
+    if (!taskId || taskId.length > 200) {
+      const { body, status } = errorResponse("REQ_BAD_FORMAT", "任务 ID 无效");
       return NextResponse.json({ error: body }, { status });
     }
 
-    const statusUrl = `${baseURL}/images/tasks/${taskId}`;
+    const statusUrl = `${baseURL}/images/tasks/${encodeURIComponent(taskId)}`;
 
     let statusRes;
     try {
@@ -104,9 +105,9 @@ export async function GET(
       fail_reason: null,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "未知错误";
+    // details 不透出内部异常原文，仅记日志
     console.error("[task] 处理请求异常:", error);
-    const { body, status } = errorResponse("UNKNOWN", message);
+    const { body, status } = errorResponse("UNKNOWN");
     return NextResponse.json({ error: body }, { status });
   }
 }

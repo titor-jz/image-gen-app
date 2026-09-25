@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { httpRequest } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
+import { resolveUpstream } from "@/lib/upstream-config";
 
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get("x-api-key");
-    const baseURL = request.headers.get("x-base-url");
-    const proxyUrl = request.headers.get("x-proxy-url") || "";
+    // 「测试连接」测的就是表单里填的值（header 传递），不做 env 回落；
+    // base/proxy 仍需过 SSRF 基线校验（评审 S-8）
+    const upstream = resolveUpstream(request);
+    if (!upstream.ok) {
+      const { body, status } = errorResponse(upstream.errorCode, upstream.reason);
+      return NextResponse.json({ error: body }, { status });
+    }
+    const { baseURL, proxyUrl } = upstream;
 
     if (!apiKey) {
       const { body, status } = errorResponse("AUTH_MISSING_KEY");
@@ -15,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     // 用 GET /models 验证鉴权（免费端点）。
     // 旧实现提交一次真实异步生图任务并轮询，导致每次「测试连接」都按一张图计费。
-    const url = `${baseURL || "https://api.openai.com/v1"}/models`;
+    const url = `${baseURL}/models`;
     let res;
     try {
       res = await httpRequest(url, {
@@ -54,8 +61,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, message: "API Key 验证通过" });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    const { body, status } = errorResponse("UNKNOWN", message);
+    // details 不透出内部异常原文，仅记日志
+    console.error("[test-key] 未知异常:", error);
+    const { body, status } = errorResponse("UNKNOWN");
     return NextResponse.json({ error: body }, { status });
   }
 }

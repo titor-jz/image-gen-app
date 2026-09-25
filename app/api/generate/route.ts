@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { FormData as UndiciFormData } from "undici";
 import { httpRequest, httpFormDataRequest, httpJsonPost } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
+import { resolveUpstream } from "@/lib/upstream-config";
+import { upstreamUrlError } from "@/lib/url-guard";
 
 // gpt-image-2 支持的尺寸
 // 2K 档(默认):适合快速出图
@@ -38,15 +40,20 @@ const QUALITY_MAP: Record<string, string> = {
   "4k": "high",
 };
 
+// 请求体上限 4MB：必须低于 Vercel 平台限制（约 4.5MB），否则平台先拒（413），
+// 客户端只能拿到"未知错误"而不是 REQ_BODY_TOO_LARGE 的中文提示（评审 S-4）
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
 export async function POST(request: NextRequest) {
   try {
-    const apiKey =
-      request.headers.get("x-api-key") || process.env.OPENAI_API_KEY;
-    const baseURL =
-      request.headers.get("x-base-url") ||
-      process.env.OPENAI_BASE_URL ||
-      "https://api.openai.com/v1";
-    const proxyUrl = request.headers.get("x-proxy-url") || "";
+    // Key 与 BaseURL 同源：env Key 模式下忽略客户端 base/proxy（评审 S-1），
+    // 客户端来源的 base/proxy 过 SSRF 基线校验（评审 S-2）
+    const upstream = resolveUpstream(request);
+    if (!upstream.ok) {
+      const { body, status } = errorResponse(upstream.errorCode, upstream.reason);
+      return NextResponse.json({ error: body }, { status });
+    }
+    const { apiKey, baseURL, proxyUrl } = upstream;
 
     if (!apiKey) {
       const { body, status } = errorResponse("AUTH_MISSING_KEY");
@@ -55,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     // 请求体大小
     const contentLength = request.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > 20 * 1024 * 1024) {
+    if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
       const { body, status } = errorResponse("REQ_BODY_TOO_LARGE");
       return NextResponse.json({ error: body }, { status });
     }
@@ -204,15 +211,22 @@ export async function POST(request: NextRequest) {
     if (first) {
       let b64Json: string | undefined = first.b64_json;
       if (!b64Json && typeof first.url === "string") {
-        try {
-          const imgRes = await httpRequest(first.url, { proxyUrl: proxyUrl || undefined });
-          if (imgRes.status >= 200 && imgRes.status < 300 && imgRes.bodyBuffer) {
-            b64Json = imgRes.bodyBuffer.toString("base64");
-          } else {
-            console.error("[generate] 同步分支下载图片失败:", imgRes.status);
+        // 上游返回的图片地址在服务端代取前必须过 SSRF 基线校验：
+        // 恶意"上游"可返回内网地址（如 169.254.169.254）借服务端读内网（评审 S-2）
+        const downloadErr = upstreamUrlError(first.url);
+        if (downloadErr) {
+          console.error("[generate] 同步分支图片 URL 未通过安全校验:", downloadErr);
+        } else {
+          try {
+            const imgRes = await httpRequest(first.url, { proxyUrl: proxyUrl || undefined });
+            if (imgRes.status >= 200 && imgRes.status < 300 && imgRes.bodyBuffer) {
+              b64Json = imgRes.bodyBuffer.toString("base64");
+            } else {
+              console.error("[generate] 同步分支下载图片失败:", imgRes.status);
+            }
+          } catch (err) {
+            console.error("[generate] 同步分支下载图片异常:", err);
           }
-        } catch (err) {
-          console.error("[generate] 同步分支下载图片异常:", err);
         }
       }
       if (b64Json) {
@@ -226,9 +240,9 @@ export async function POST(request: NextRequest) {
     const { body, status } = errorResponse("GEN_UPSTREAM_NO_TASK_ID");
     return NextResponse.json({ error: body }, { status });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "未知错误";
+    // details 不透出内部异常原文（可能含内部 URL），仅记日志
     console.error("[generate] 未知异常:", error);
-    const { body, status } = errorResponse("UNKNOWN", message);
+    const { body, status } = errorResponse("UNKNOWN");
     return NextResponse.json({ error: body }, { status });
   }
 }

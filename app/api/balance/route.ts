@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errorResponse } from "@/lib/error-messages";
 
 export async function GET(request: NextRequest) {
   const apiKey =
     request.headers.get("x-api-key") || process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json({ error: "API Key required" }, { status: 401 });
+    const { body, status } = errorResponse("AUTH_MISSING_KEY");
+    return NextResponse.json({ error: body }, { status });
   }
 
   // GPT-Image2 API does not directly return balance; stub for future implementation

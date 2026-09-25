@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { httpRequest } from "@/lib/http-client";
+import { resolveUpstream } from "@/lib/upstream-config";
 import type { ModelInfo } from "@/lib/types";
 
 const IMAGE_MODEL_KEYWORDS = [
@@ -22,18 +23,19 @@ const FALLBACK_MODELS: ModelInfo[] = [
 ];
 
 export async function GET(request: NextRequest) {
-  const apiKey = request.headers.get("x-api-key");
-  // 与 generate/task 路由保持一致的 baseURL 回退链：header → 环境变量 → 官方
-  const baseURL =
-    request.headers.get("x-base-url") || process.env.OPENAI_BASE_URL;
-  const proxyUrl = request.headers.get("x-proxy-url") || "";
-
-  if (!apiKey) {
+  const upstream = resolveUpstream(request);
+  // 安全校验未过 / 服务端 Key 模式（env Key 不用于代拉模型列表，与原行为一致）/
+  // 无 Key：统一返回兜底模型列表
+  if (!upstream.ok || upstream.usingServerKey || !upstream.apiKey) {
+    if (!upstream.ok) {
+      console.warn("[models] 上游地址未通过安全校验:", upstream.reason);
+    }
     return NextResponse.json({ models: FALLBACK_MODELS });
   }
+  const { apiKey, baseURL, proxyUrl } = upstream;
 
   try {
-    const url = `${baseURL || "https://api.openai.com/v1"}/models`;
+    const url = `${baseURL}/models`;
     const res = await httpRequest(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
       proxyUrl: proxyUrl || undefined,
