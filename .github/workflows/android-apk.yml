@@ -27,13 +27,30 @@ jobs:
       - name: 同步 Capacitor（web 资源与插件引用）
         run: npx cap sync android
 
-      - name: 构建 Debug APK
+      - name: 解码签名密钥（来自仓库 Secrets）
+        env:
+          APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+        run: |
+          mkdir -p keystore
+          echo "$APK_KEYSTORE_BASE64" | base64 -d > keystore/image-gen-release.p12
+          printf "storeFile=../keystore/image-gen-release.p12\nstoreType=PKCS12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n" "$APK_KEY_PASSWORD" "$APK_KEY_ALIAS" "$APK_KEY_PASSWORD" > keystore.properties
+
+      - name: 构建 APK（debug + release）
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug assembleRelease --no-daemon
 
-      - name: 上传 APK
+      - name: 上传 Release APK（正式版）
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagegen-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: 上传 Debug APK（调试用）
         uses: actions/upload-artifact@v4
         with:
           name: imagegen-debug-apk

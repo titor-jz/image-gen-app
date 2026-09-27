@@ -20,8 +20,9 @@ const config: CapacitorConfig = {
     errorPath: "index.html",
   },
   android: {
-    // 允许 chrome://inspect 调试 WebView（个人工具，方便排障）
-    webContentsDebuggingEnabled: true,
+    // 正式版关闭 WebView 远程调试（chrome://inspect 无法读取应用数据）；
+    // 排查问题时临时改回 true 重新构建
+    webContentsDebuggingEnabled: false,
   },
 };
 
