@@ -50,6 +50,8 @@ export interface AppSettings {
   proxyUrl?: string;
   /** 默认单次生成图片数量（1~4），未配置时按 1 处理（向后兼容） */
   defaultN?: 1 | 2 | 3 | 4;
+  /** 参考图清晰度模式（自动/高清/原图），未配置时按 auto 处理 */
+  refQuality?: "auto" | "hd" | "original";
 }
 
 /**

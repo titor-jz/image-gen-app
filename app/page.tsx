@@ -26,6 +26,7 @@ import { HistoryDrawerSkeleton } from "@/components/drawer-skeleton";
 import {
   UnifiedInputCard,
   type Quality,
+  type RefQuality,
   type ReferenceImage,
 } from "@/components/UnifiedInputCard";
 import { ResultGrid } from "@/components/ResultGrid";
@@ -54,6 +55,8 @@ export default function Home() {
   const [selectedQuality, setSelectedQuality] = useState<Quality>("1k");
   // 单次并发生成数量（1~4），默认 1 保持向后兼容；SSR/CSR 一致由 useState 初值保证
   const [selectedN, setSelectedN] = useState<1 | 2 | 3 | 4>(1);
+  // 参考图清晰度（自动/高清/原图），挂载后从用户设置同步
+  const [refQuality, setRefQuality] = useState<RefQuality>("auto");
   // 多模型对比模式
   const [compareMode, setCompareMode] = useState(false);
   const [modelB, setModelB] = useState<string>("gpt-image-2");
@@ -71,6 +74,7 @@ export default function Home() {
     if (settings.defaultQuality)
       setSelectedQuality(settings.defaultQuality as Quality);
     if (settings.defaultN) setSelectedN(settings.defaultN);
+    if (settings.refQuality) setRefQuality(settings.refQuality);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
@@ -103,6 +107,7 @@ export default function Home() {
     n: selectedN,
     compareMode,
     modelB: modelB as ModelInfo["id"],
+    refQuality,
     activeNodeId: activeNode?.id,
     activeNodeName: activeNode?.name,
     nodeB: nodeB && nodeB.id !== activeNode?.id ? {
@@ -229,6 +234,8 @@ export default function Home() {
               onQualityChange={setSelectedQuality}
               selectedN={selectedN}
               onNChange={setSelectedN}
+              refQuality={refQuality}
+              onRefQualityChange={setRefQuality}
               compareMode={compareMode}
               onCompareModeChange={setCompareMode}
               modelB={modelB}

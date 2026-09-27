@@ -80,6 +80,8 @@ export interface UseImageGenerationOptions {
     apiKey: string;
     proxyUrl: string;
   } | null;
+  /** 参考图清晰度模式（生成时持久化到用户设置） */
+  refQuality?: "auto" | "hd" | "original";
 }
 
 export interface UseImageGenerationResult {
@@ -198,7 +200,7 @@ export function useImageGeneration(
 ): UseImageGenerationResult {
   const {
     prompt, referenceImages, model, size, quality, n, compareMode, modelB,
-    activeNodeId, activeNodeName, nodeB,
+    activeNodeId, activeNodeName, nodeB, refQuality,
   } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
@@ -736,6 +738,7 @@ export function useImageGeneration(
           defaultSize: size,
           defaultQuality: quality,
           defaultN: n,
+          refQuality,
         });
       }
     } finally {

@@ -18,10 +18,16 @@ export interface ReferenceImage {
 
 export type Quality = "1k" | "2k" | "4k";
 
+/** 参考图清晰度模式（chip 选择持久化到用户设置） */
+export type RefQuality = "auto" | "hd" | "original";
+
 interface UnifiedInputCardProps {
   prompt: string;
   onPromptChange: (v: string) => void;
   referenceImages: ReferenceImage[];
+  /** 参考图清晰度模式：自动压缩 / 高清压缩 / 原图直传（选择持久化） */
+  refQuality: RefQuality;
+  onRefQualityChange: (q: RefQuality) => void;
   /** 支持直接传新数组或函数式更新（批量上传并发追加时必须用函数式，避免旧闭包互相覆盖） */
   onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
   /** 节点切换后新模型列表加载中（chip 显示加载提示，避免误以为旧列表可用） */
@@ -79,22 +85,35 @@ const COUNTS: { value: string; label: string }[] = [
   { value: "4", label: "4张" },
 ];
 
-const MAX_IMG_SIZE = 8 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_COUNT = 8;
-// 压缩阈值与最长边：默认按服务端 4MB 上限收敛（Vercel 平台限 4.5MB，评审 S-4），
-// 8 张图最坏 8×512KB≈4MB，压缩后单张约 150~400KB，实际余量充足。
-// 本地/自托管放宽服务端上限时，可用构建期变量同步放宽（NEXT_PUBLIC_* 为构建期注入）：
-//   NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB（默认 512）
-//   NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE（默认 1024，值越高参考图清晰度保留越多）
-const COMPRESS_THRESHOLD =
-  (Number(process.env.NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB) || 512) * 1024;
-const COMPRESS_MAX_EDGE =
-  Number(process.env.NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE) || 1024;
-const COMPRESS_QUALITY = 0.85;
+// 「原图直传」单文件上限：默认对齐服务端 4MB 上限（Vercel 预设）。
+// 本地/自托管放宽 GEN_MAX_BODY_MB 时，用构建期变量同步（NEXT_PUBLIC_ORIGINAL_MAX_MB）。
+// 大图不再被直接拒收：自动/高清档一律压缩，仅原图档按此上限提示切档。
+const ORIGINAL_MAX_MB = Number(process.env.NEXT_PUBLIC_ORIGINAL_MAX_MB) || 4;
+// 自动/高清两档压缩参数（阈值内不压缩）。自动档默认值可用构建期变量覆盖。
+const COMPRESS_PRESETS: Record<
+  Exclude<RefQuality, "original">,
+  { threshold: number; edge: number; quality: number }
+> = {
+  auto: {
+    threshold:
+      (Number(process.env.NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB) || 512) * 1024,
+    edge: Number(process.env.NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE) || 1024,
+    quality: 0.85,
+  },
+  hd: { threshold: 2 * 1024 * 1024, edge: 2048, quality: 0.9 },
+};
 
-async function compressImage(file: File): Promise<{ blob: Blob; mime: string }> {
-  if (file.size < COMPRESS_THRESHOLD || !file.type.startsWith("image/")) {
+async function compressImage(  file: File,
+  mode: RefQuality
+): Promise<{ blob: Blob; mime: string }> {
+  // 原图直传：不压缩；非图片类型不走压缩
+  if (mode === "original" || !file.type.startsWith("image/")) {
+    return { blob: file, mime: file.type };
+  }
+  const preset = COMPRESS_PRESETS[mode];
+  if (file.size < preset.threshold) {
     return { blob: file, mime: file.type };
   }
   return new Promise((resolve) => {
@@ -102,7 +121,7 @@ async function compressImage(file: File): Promise<{ blob: Blob; mime: string }> 
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const scale = Math.min(1, COMPRESS_MAX_EDGE / Math.max(img.width, img.height));
+      const scale = Math.min(1, preset.edge / Math.max(img.width, img.height));
       const w = Math.max(1, Math.round(img.width * scale));
       const h = Math.max(1, Math.round(img.height * scale));
       const canvas = document.createElement("canvas");
@@ -117,7 +136,7 @@ async function compressImage(file: File): Promise<{ blob: Blob; mime: string }> 
           resolve({ blob, mime: "image/jpeg" });
         },
         "image/jpeg",
-        COMPRESS_QUALITY
+        preset.quality
       );
     };
     img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type }); };
@@ -198,6 +217,7 @@ export function UnifiedInputCard({
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
+  refQuality, onRefQualityChange,
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate,
 }: UnifiedInputCardProps) {
@@ -281,9 +301,13 @@ export function UnifiedInputCard({
   const processFile = useCallback(async (file: File) => {
     setImgError(null);
     if (!ACCEPTED_TYPES.includes(file.type)) { setImgError("仅支持 JPG, PNG, WEBP"); return; }
-    if (file.size > MAX_IMG_SIZE) { setImgError("文件不能超过 8MB"); return; }
+    // 大图不再直接拒收：自动/高清档一律压缩；仅原图直传档按服务端上限提示切档
+    if (refQuality === "original" && file.size > ORIGINAL_MAX_MB * 1024 * 1024) {
+      setImgError(`原图超过 ${ORIGINAL_MAX_MB}MB，请改用「高清压缩」或「自动压缩」`);
+      return;
+    }
     try {
-      const { blob, mime } = await compressImage(file);
+      const { blob, mime } = await compressImage(file, refQuality);
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
@@ -298,7 +322,7 @@ export function UnifiedInputCard({
     } catch {
       setImgError("图片处理失败");
     }
-  }, [onReferenceImagesChange]);
+  }, [onReferenceImagesChange, refQuality]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false); setCardDragOver(false);
@@ -481,6 +505,17 @@ export function UnifiedInputCard({
           )}
           <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(",")} multiple className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
+
+          {/* 参考图清晰度：自动/高清/原图（选择持久化到用户设置） */}
+          <SelectChip
+            value={refQuality}
+            onChange={onRefQualityChange}
+            options={[
+              { value: "auto", label: "自动压缩" },
+              { value: "hd", label: "高清压缩" },
+              { value: "original", label: "原图直传" },
+            ]}
+          />
 
           {/* 模型选择（节点切换后加载中显示提示，避免误用旧节点模型列表） */}
           <SelectChip
