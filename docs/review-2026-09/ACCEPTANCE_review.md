@@ -44,6 +44,27 @@
 | curl ⑥ 无 Key models 回归 | 兜底模型正常 ✅ |
 | **不变式判别测试（端到端）** | env Key 模式：客户端注入 `/clientbase` 被忽略，实际请求打到 env 指定的 `/envbase` ✅；BYO 模式：`x-api-key`+`x-base-url` 正常到达 `/byobase` ✅（用本地监听器记录路径判别） |
 
+## 阶段 3.5：安卓端模拟测试 ✅（2026-09-26 追加，用户授权）
+
+**方法**：Playwright 注入 Capacitor 原生桥 mock——mock 契约逐一镜像真实源码（平台判定按 core 的 `getPlatformId` 检查 `androidBridge`；方法分发按 core 的 `PluginHeaders` rtype 走 `nativePromise/nativeCallback`；Media 行为镜像 `MediaPlugin.java`，含"savePhoto 缺 albumIdentifier 必须 reject"）。真实桥代码（@capacitor/core 分发层）跑在假原生层上，非纯函数级模拟。
+
+**结果：11/11 通过**（`node scripts/test-capacitor-bridge.cjs`，需 dev server）：
+
+| 验证项 | 结果 |
+|---|---|
+| 平台判定 android + isNativePlatform | ✅ |
+| APP 环境渲染「保存到相册」按钮 | ✅ |
+| 保存流程 getAlbums→createAlbum→getAlbums→savePhoto | ✅ 调用序列精确匹配 |
+| savePhoto 满足原生契约（albumIdentifier 必填） | ✅ 传了 album-1 |
+| 保存成功 toast + 二次保存不重复建相册 | ✅ |
+| 返回键：关抽屉→退出 / 开抽屉→仅关抽屉 / 再按→退出 | ✅ 三态全对 |
+| 快速开关抽屉 3 次后监听器仍单次注册（无竞态泄漏） | ✅ |
+| 状态栏：挂载亮色(#ffffff)→切换暗色(#0b121a/DARK) | ✅ 序列正确 |
+
+**过程中抓到并修正的测试侧偏差**（app 代码无误）：mock 的 addListener 曾在注册瞬间调用事件回调（真实桥只存储不调用），导致"启动即 exitApp"假象——修正后语义与真实桥一致。
+
+**边界**：此层验证的是 Web 代码与原生契约的对接；APK 内真实插件行为（MediaStore 落盘、系统返回键事件）仍需 CI 出包 + 真机/模拟器确认。
+
 ## 未验证项（交用户闭环）
 
 - Android CI 真跑出包 + 真机验收（见 TODO_review）。
