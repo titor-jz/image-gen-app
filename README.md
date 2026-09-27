@@ -33,6 +33,18 @@ npm run dev
 
 - **Vercel**：连接仓库即可（`vercel.json` 已配置 hkg1 区域、函数 maxDuration 60s）。
 - **Cloudflare Workers**：`npm run deploy:cf`（OpenNext 适配，见 `wrangler.jsonc`）。
+- **本地 / 自托管**：`npm run build && npm start`（常驻 Node 进程，无 serverless 时长/体积限制）。
+  以下环境变量可放宽为 Vercel 预设的限制（**不配置即维持默认**，Vercel 上零变化；写在 `.env` 里即可）：
+
+  | 变量 | 默认 | 说明 |
+  |---|---|---|
+  | `GEN_TIMEOUT_MS` | 55000 | 上游提交/同步生图超时（须低于 Vercel maxDuration，自托管可放宽到 300000） |
+  | `HTTP_GET_TIMEOUT_MS` | 30000 | 上游 GET（轮询/取图）超时 |
+  | `GEN_MAX_BODY_MB` | 4 | 生成请求体上限（MB），自托管可放宽到 20 |
+  | `NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB` | 512 | 参考图自动压缩阈值（KB），构建期注入 |
+  | `NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE` | 1024 | 压缩后参考图最长边（px），值越高清晰度保留越多，构建期注入 |
+
+  APK 侧指向自托管地址：改 `capacitor.config.ts` 的 `server.url` 后重跑 Actions。
 
 ## 安全注意事项
 

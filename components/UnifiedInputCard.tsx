@@ -82,10 +82,15 @@ const COUNTS: { value: string; label: string }[] = [
 const MAX_IMG_SIZE = 8 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_COUNT = 8;
-// 压缩阈值 512KB：服务端上限 4MB（Vercel 平台限 4.5MB），8 张图最坏
-// 8×512KB≈4MB，压缩后单张约 150~400KB，实际余量充足（评审 S-4）
-const COMPRESS_THRESHOLD = 512 * 1024;
-const COMPRESS_MAX_EDGE = 1024;
+// 压缩阈值与最长边：默认按服务端 4MB 上限收敛（Vercel 平台限 4.5MB，评审 S-4），
+// 8 张图最坏 8×512KB≈4MB，压缩后单张约 150~400KB，实际余量充足。
+// 本地/自托管放宽服务端上限时，可用构建期变量同步放宽（NEXT_PUBLIC_* 为构建期注入）：
+//   NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB（默认 512）
+//   NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE（默认 1024，值越高参考图清晰度保留越多）
+const COMPRESS_THRESHOLD =
+  (Number(process.env.NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB) || 512) * 1024;
+const COMPRESS_MAX_EDGE =
+  Number(process.env.NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE) || 1024;
 const COMPRESS_QUALITY = 0.85;
 
 async function compressImage(file: File): Promise<{ blob: Blob; mime: string }> {

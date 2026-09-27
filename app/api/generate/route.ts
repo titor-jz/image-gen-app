@@ -40,9 +40,11 @@ const QUALITY_MAP: Record<string, string> = {
   "4k": "high",
 };
 
-// 请求体上限 4MB：必须低于 Vercel 平台限制（约 4.5MB），否则平台先拒（413），
-// 客户端只能拿到"未知错误"而不是 REQ_BODY_TOO_LARGE 的中文提示（评审 S-4）
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
+// 请求体上限：默认 4MB，必须低于 Vercel 平台限制（约 4.5MB），否则平台先拒（413），
+// 客户端只能拿到"未知错误"而不是 REQ_BODY_TOO_LARGE 的中文提示（评审 S-4）。
+// 本地/自托管可用 GEN_MAX_BODY_MB 放宽（如 GEN_MAX_BODY_MB=20）。
+const MAX_BODY_BYTES =
+  (Number(process.env.GEN_MAX_BODY_MB) || 4) * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,7 +65,10 @@ export async function POST(request: NextRequest) {
     // 请求体大小
     const contentLength = request.headers.get("content-length");
     if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
-      const { body, status } = errorResponse("REQ_BODY_TOO_LARGE");
+      const { body, status } = errorResponse(
+        "REQ_BODY_TOO_LARGE",
+        `当前上限 ${process.env.GEN_MAX_BODY_MB || 4}MB`
+      );
       return NextResponse.json({ error: body }, { status });
     }
 

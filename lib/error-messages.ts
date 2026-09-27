@@ -57,7 +57,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   UNKNOWN: "未知错误，请稍后重试",
 
   // 请求
-  REQ_BODY_TOO_LARGE: "请求体过大（>4MB），请减少参考图数量或使用更小的图片",
+  REQ_BODY_TOO_LARGE: "请求体过大，请减少参考图数量或使用更小的图片",
   REQ_BAD_FORMAT: "请求格式错误，请刷新页面重试",
   REQ_MISSING_PROMPT: "请输入提示词",
   REQ_INVALID_UPSTREAM_URL: "上游地址不合法（不允许内网/保留地址），请检查 API 节点配置",
