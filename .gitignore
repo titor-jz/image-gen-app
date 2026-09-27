@@ -68,3 +68,6 @@ generate-*.js
 
 # zcode 本地产物
 .zcode/
+
+# 测试运行产物
+scripts/.tmp-*.png
