@@ -1,62 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, ImageOff, FolderDown } from "lucide-react";
+import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, FolderDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FadeInImage, ResultCard } from "@/components/ResultCard";
 import { isCapacitor } from "@/lib/capacitor-env";
+import {
+  downloadAllResults,
+  downloadResult,
+  getResultImageSrc,
+  saveAllResultsToGallery,
+  saveResultToGallery,
+} from "@/lib/image-actions";
 import type { GenerateResult } from "@/lib/types";
 
 interface ResultGridProps {
   results: GenerateResult[];
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
-}
-
-/**
- * 图片加载占位组件：默认透明，onLoad 后 fade-in 显形。
- * 容器需自带 bg-muted 作占位底色，避免大图白屏闪烁（§7 loading-states / §3 content-jumping）。
- * alt 填提示词摘要，供屏幕阅读器与图片加载失败时兜底（§1 alt-text）。
- * onError 时显示占位图标：blob URL 失效等裂图场景不再渲染成永久透明的空块。
- */
-function FadeInImage({
-  src,
-  alt,
-  className,
-  style,
-}: {
-  src: string;
-  alt: string;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div
-        className={`${className} flex items-center justify-center text-muted-foreground`}
-        title={alt}
-        role="img"
-        aria-label={`${alt}（图片加载失败）`}
-      >
-        <ImageOff className="w-6 h-6" />
-      </div>
-    );
-  }
-  return (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onLoad={() => setLoaded(true)}
-      onError={() => setFailed(true)}
-      style={style}
-      className={`${className} transition-opacity duration-300 ${
-        loaded ? "opacity-100" : "opacity-0"
-      }`}
-    />
-  );
 }
 
 export function ResultGrid({ results, hasRunning }: ResultGridProps) {
@@ -74,79 +35,15 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
    * 优先使用 blob URL（避免 base64 转 dataURL 的解码开销）
    * 历史记录等无 imageUrl 的数据回退到 dataURL
    */
-  const getImageSrc = (result: GenerateResult) =>
-    result.imageUrl || `data:${result.mime};base64,${result.b64_json}`;
+  const getImageSrc = getResultImageSrc;
 
-  /** 保存原图到系统相册（仅 APP 环境；离线可用，数据来自本地 b64）。
-   *  Android 侧 albumIdentifier 必填：先查/建「AI 生图」相册。
-   *  createAlbum 无返回值，创建后需重新 getAlbums 取 identifier（见插件 definitions）。 */
-  const handleSaveToGallery = async (result: GenerateResult) => {
-    try {
-      const { Media } = await import("@capacitor-community/media");
-      const ALBUM_NAME = "AI 生图";
-      const findAlbum = async () =>
-        (await Media.getAlbums()).albums.find((a) => a.name === ALBUM_NAME);
-      let album = await findAlbum();
-      if (!album) {
-        await Media.createAlbum({ name: ALBUM_NAME });
-        album = await findAlbum();
-      }
-      if (!album) {
-        throw new Error("相册创建失败");
-      }
-      await Media.savePhoto({
-        path: `data:${result.mime};base64,${result.b64_json}`,
-        albumIdentifier: album.identifier,
-      });
-      toast.success("已保存到相册");
-    } catch (e) {
-      // 插件原文是英文（如 "Album identifier required"），不直接抛给用户
-      console.error("[gallery] 保存失败:", e);
-      toast.error("保存到相册失败", {
-        description: "请检查相册权限后重试",
-      });
-    }
-  };
+  const handleSaveToGallery = saveResultToGallery;
 
-  const handleDownload = async (result: GenerateResult) => {
-    try {
-      // 已有 blob URL 直接使用，零额外转换
-      // 否则从 dataURL 走一次 fetch 转 blob
-      let downloadUrl: string | undefined = result.imageUrl;
-      let needsRevoke = false;
-      if (!downloadUrl) {
-        const dataUrl = `data:${result.mime};base64,${result.b64_json}`;
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
-        downloadUrl = URL.createObjectURL(blob);
-        needsRevoke = true;
-      }
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = `generated-${Date.now()}.${result.mime.split("/")[1] || "png"}`;
-      link.click();
-      // 仅在本次新建的 URL 上 revoke，复用的 imageUrl 不能动
-      if (needsRevoke && downloadUrl) {
-        const urlToRevoke = downloadUrl;
-        setTimeout(() => URL.revokeObjectURL(urlToRevoke), 1000);
-      }
-    } catch (e) {
-      console.error("Download failed:", e);
-    }
-  };
+  const handleDownload = downloadResult;
 
-  const handleDownloadAll = () => {
-    results.forEach((result, i) => {
-      setTimeout(() => handleDownload(result), i * 500);
-    });
-  };
+  const handleDownloadAll = () => downloadAllResults(results);
 
-  /** 全部保存到相册（APP 环境；顺序执行避免并发写 MediaStore） */
-  const handleSaveAll = async () => {
-    for (const result of results) {
-      await handleSaveToGallery(result);
-    }
-  };
+  const handleSaveAll = () => saveAllResultsToGallery(results);
 
   if (results.length === 0) {
     return (
@@ -405,83 +302,6 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-/** 单张结果图卡(对比组与单项共用) */
-function ResultCard({
-  result,
-  index,
-  onExpand,
-  onDownload,
-  onSaveToGallery,
-  appMode = false,
-  getImageSrc,
-  showModelAlways = false,
-}: {
-  result: GenerateResult;
-  index: number;
-  onExpand: (index: number) => void;
-  onDownload: (r: GenerateResult) => void;
-  /** APP 环境下的保存到相册动作（appMode 为真时替代下载） */
-  onSaveToGallery?: (r: GenerateResult) => void;
-  /** Capacitor 壳内：卡片操作钮换成保存到相册 */
-  appMode?: boolean;
-  getImageSrc: (r: GenerateResult) => string;
-  /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
-  showModelAlways?: boolean;
-}) {
-  return (
-    <div
-      className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
-      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
-      onClick={() => onExpand(index)}
-    >
-      <FadeInImage
-        src={getImageSrc(result)}
-        alt={result.prompt}
-        className="w-full h-full object-cover transition-slow group-hover:scale-105"
-      />
-      {/* 模型名+节点标签:对比组常驻,非对比组仅 hover */}
-      <span
-        className={`absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 transition-base ${
-          showModelAlways ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      >
-        {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
-      </span>
-      {/* 卡片操作钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐。
-          APP 环境 a[download] 无效 → 同一位置换成原生「保存到相册」 */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-        {appMode ? (
-          <Button
-            variant="secondary"
-            size="icon"
-            className="press"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSaveToGallery?.(result);
-            }}
-            aria-label="保存到相册"
-          >
-            <FolderDown className="w-4 h-4" />
-          </Button>
-        ) : (
-          <Button
-            variant="secondary"
-            size="icon"
-            className="press"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDownload(result);
-            }}
-            aria-label="下载"
-          >
-            <Download className="w-4 h-4" />
-          </Button>
-        )}
-      </div>
     </div>
   );
 }

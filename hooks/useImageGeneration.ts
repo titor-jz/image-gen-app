@@ -756,6 +756,7 @@ export function useImageGeneration(
     activeNodeId,
     activeNodeName,
     nodeB,
+    refQuality,
     baseUrl,
     proxyUrl,
     updateTask,

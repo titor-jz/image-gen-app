@@ -234,6 +234,19 @@
   background-size: 200% 100%;
 }
 
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-up {
+  animation: sheet-up 280ms var(--ease-soft) both;
+}
+
 @keyframes drawer-in {
   from {
     transform: translateX(-100%);

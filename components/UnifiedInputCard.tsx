@@ -2,8 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, ChevronDown, Check, CheckCircle2, XCircle, Ban, Loader2, GitCompare, Server, Clock, RotateCw } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SelectChip } from "@/components/SelectChip";
+import { TaskList } from "@/components/TaskList";
 import { buildApiHeaders } from "@/lib/api-headers";
 import { mergeCustomModels } from "@/lib/custom-models";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
@@ -142,73 +144,6 @@ async function compressImage(  file: File,
     img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type }); };
     img.src = url;
   });
-}
-
-function SelectChip<T extends string>({
-  value,
-  onChange,
-  options,
-  className = "",
-  displayLabel,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string }[];
-  className?: string;
-  /** 覆盖触发按钮文案（如列表加载中时显示「模型加载中…」） */
-  displayLabel?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const current = options.find((o) => o.value === value);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className={`relative ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((p) => !p)}
-        className={`toolbar-chip ${open ? "border-border bg-accent/60" : ""}`}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <span className={displayLabel ? "text-muted-foreground" : ""}>{displayLabel ?? current?.label}</span>
-        <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-base ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="absolute bottom-full mb-2 left-0 min-w-full max-w-[calc(100vw-3rem)] bg-popover border border-border rounded-xl shadow-xl py-1 z-50 animate-fade-up max-h-60 overflow-y-auto scrollbar-thin">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-base hover:bg-accent/60 ${opt.value === value ? "text-primary" : "text-foreground"}`}
-              role="option"
-              aria-selected={opt.value === value}
-            >
-              <span className="flex-1 text-left whitespace-nowrap truncate">{opt.label}</span>
-              {opt.value === value && <Check className="w-3.5 h-3.5 text-primary" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function UnifiedInputCard({
@@ -600,150 +535,13 @@ export function UnifiedInputCard({
         </Button>
       </div>
 
-      {/* 任务进度列表：按 batchId 分组，每批一个微容器。
-          - polling 用 shimmer 流光表示"工作中"，不显示假百分比爬行（motion-meaning）
-          - 终态用状态图标 + 状态色（color-not-only：不只靠颜色传达状态）
-          - 进行中/刚终态(淡出期)都显示；终态 1.5s 后由 hook 移除 */}
-      {tasks.length > 0 && (
-        <div className="px-4 pb-3 flex flex-col gap-2 animate-fade-in">
-          {Object.entries(
-            tasks.reduce<Record<string, GenTask[]>>((acc, t) => {
-              (acc[t.batchId] ??= []).push(t);
-              return acc;
-            }, {})
-          ).map(([batchId, group]) => (
-            <div
-              key={batchId}
-              className="rounded-xl bg-muted/60 border border-border/60 px-3 py-2 flex flex-col gap-1.5"
-            >
-              {group.map((slot) => {
-                const running =
-                  slot.status === "submitting" || slot.status === "polling";
-                // 状态图标 + 颜色（§1 color-not-only：图标辅助颜色传达状态）
-                const Icon =
-                  slot.status === "success"
-                    ? CheckCircle2
-                    : slot.status === "failed"
-                    ? XCircle
-                    : slot.status === "timeout"
-                    ? Clock
-                    : slot.status === "cancelled"
-                    ? Ban
-                    : Loader2;
-                const iconColor =
-                  slot.status === "success"
-                    ? "text-emerald-500"
-                    : slot.status === "failed"
-                    ? "text-destructive"
-                    : slot.status === "timeout"
-                    ? "text-amber-500"
-                    : slot.status === "cancelled"
-                    ? "text-muted-foreground/60"
-                    : "text-primary";
-                const barColor =
-                  slot.status === "failed"
-                    ? "bg-destructive"
-                    : slot.status === "timeout"
-                    ? "bg-amber-500/70"
-                    : slot.status === "cancelled"
-                    ? "bg-muted-foreground/40"
-                    : slot.status === "success"
-                    ? "bg-emerald-500"
-                    : "bg-primary";
-                const isTerminal =
-                  slot.status === "success" ||
-                  slot.status === "failed" ||
-                  slot.status === "timeout" ||
-                  slot.status === "cancelled";
-                const label = isTerminal
-                  ? slot.status === "success"
-                    ? "完成"
-                    : slot.status === "failed"
-                    ? "失败"
-                    : slot.status === "timeout"
-                    ? "超时"
-                    : "取消"
-                  : slot.elapsedSec
-                  ? `${slot.elapsedSec}s`
-                  : "等待";
-                return (
-                  <div key={slot.id} className="flex items-center gap-2.5">
-                    {/* 状态图标：polling 时旋转，终态静态 */}
-                    <Icon
-                      className={`w-4 h-4 shrink-0 ${iconColor} ${
-                        slot.status === "submitting" || slot.status === "polling"
-                          ? "animate-spin"
-                          : ""
-                      }`}
-                    />
-                    <span className="text-xs text-muted-foreground w-5 shrink-0 tabular-nums">
-                      #{slot.slot + 1}
-                    </span>
-                    <div className="flex-1 h-1.5 bg-muted/60 rounded-full overflow-hidden relative">
-                      {/* 进度填充：终态满格；submitting/polling 用低填充 + 流光表示工作中 */}
-                      <div
-                        className={`h-full transition-all duration-500 ease-soft ${barColor}`}
-                        style={{
-                          width: `${
-                            isTerminal
-                              ? 100
-                              : slot.status === "submitting"
-                              ? 15
-                              : Math.min(90, Math.max(20, Math.round((slot.progress || 0.1) * 100)))
-                          }%`,
-                        }}
-                      />
-                      {/* polling 阶段叠加 shimmer 流光，传达"正在工作"（motion-meaning） */}
-                      {running && (
-                        <div className="absolute inset-0 animate-shimmer rounded-full" />
-                      )}
-                    </div>
-                    <span className="text-xs text-muted-foreground w-9 text-right shrink-0 tabular-nums">
-                      {label}
-                    </span>
-                    {running ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-8 h-8 sm:w-6 sm:h-6 shrink-0 press hover:bg-accent/60"
-                        onClick={() => onCancelTask(slot.id)}
-                        aria-label={`取消第 ${slot.slot + 1} 张`}
-                      >
-                        <X className="w-3.5 h-3.5 text-muted-foreground" />
-                      </Button>
-                    ) : slot.status === "timeout" ? (
-                      <div className="flex items-center gap-1 shrink-0">
-                        {/* 超时可续查：上游可能已完成，用保留的 taskId 再查一轮 */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 sm:h-6 text-xs gap-1 press text-amber-600 hover:bg-amber-500/10"
-                          onClick={() => onResumeTask(slot.id)}
-                          aria-label={`继续等待第 ${slot.slot + 1} 张`}
-                        >
-                          <RotateCw className="w-3 h-3" />
-                          继续等待
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="w-8 h-8 sm:w-6 sm:h-6 press hover:bg-accent/60"
-                          onClick={() => onDismissTask(slot.id)}
-                          aria-label={`忽略第 ${slot.slot + 1} 张`}
-                        >
-                          <X className="w-3.5 h-3.5 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="w-8 h-8 sm:w-6 sm:h-6 shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+      <TaskList
+        tasks={tasks}
+        onCancelTask={onCancelTask}
+        onResumeTask={onResumeTask}
+        onDismissTask={onDismissTask}
+        className="px-4 pb-3"
+      />
 
     </div>
   );
