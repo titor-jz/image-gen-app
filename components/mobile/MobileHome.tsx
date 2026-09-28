@@ -94,7 +94,10 @@ export function MobileHome(props: MobileHomeProps) {
 
   const activeNode = props.profiles.find((p) => p.id === (props.activeNodeId || activeId)) ?? null;
 
-  // 历史面板打开时加载
+  // 挂载即加载（首屏"最近生成"轨），面板打开时刷新
+  useEffect(() => {
+    void load();
+  }, [load]);
   useEffect(() => {
     if (historyOpen) void load();
   }, [historyOpen, load]);
@@ -246,6 +249,8 @@ export function MobileHome(props: MobileHomeProps) {
               onShowResults={() => setView("results")}
               onGenerate={handleGenerate}
               canGenerate={!!props.prompt.trim()}
+              recentRecords={records}
+              onOpenRecent={handleSelectHistory}
             />
           </div>
         ) : (

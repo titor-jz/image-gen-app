@@ -16,6 +16,17 @@ import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2 } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { validateAndCompress, type RefQuality } from "@/lib/reference-image";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
+import type { HistoryRecord } from "@/lib/types";
+
+/** 灵感提示词（仅在提示词为空时展示，点选可直接编辑） */
+const SUGGESTIONS = [
+  "赛博朋克城市夜景",
+  "水彩风动物插画",
+  "极简产品海报",
+  "治愈系咖啡馆一角",
+  "电影感人物特写",
+  "国风水墨山水",
+];
 
 const MAX_COUNT = 8;
 
@@ -29,6 +40,8 @@ export function Composer({
   onShowResults,
   onGenerate,
   canGenerate,
+  recentRecords,
+  onOpenRecent,
 }: {
   prompt: string;
   onPromptChange: (v: string) => void;
@@ -43,6 +56,9 @@ export function Composer({
   onShowResults: () => void;
   onGenerate: () => void;
   canGenerate: boolean;
+  /** 最近历史（缩略图轨，点开直接看那组图） */
+  recentRecords: HistoryRecord[];
+  onOpenRecent: (record: HistoryRecord) => void;
 }) {
   const [imgError, setImgError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,7 +116,7 @@ export function Composer({
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             placeholder="例如：雨夜霓虹下的赛博朋克街道，电影感广角…"
-            className="w-full min-h-[132px] resize-none bg-transparent text-foreground text-[17px] leading-relaxed placeholder:text-muted-foreground/62 outline-none"
+            className="w-full min-h-[120px] resize-none bg-transparent text-foreground text-[17px] leading-relaxed placeholder:text-muted-foreground/62 outline-none"
             rows={4}
           />
           {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
@@ -151,6 +167,58 @@ export function Composer({
             <Upload className="w-4 h-4" />
             添加参考图（可选）
           </button>
+        )}
+
+        {/* 灵感建议（提示词为空时） */}
+        {!prompt.trim() && (
+          <div className="mt-5 animate-fade-up">
+            <div className="mb-2.5">
+              <span className="m-micro text-muted-foreground/80">灵感</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => onPromptChange(t)}
+                  className="m-pill h-9 px-3.5 text-[13px] text-foreground/80 press active:text-primary"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 最近生成（点击直接看那组图） */}
+        {recentRecords.length > 0 && (
+          <div className="mt-6 animate-fade-up">
+            <div className="mb-2.5">
+              <span className="m-micro text-muted-foreground/80">最近生成</span>
+            </div>
+            <div className="flex items-center gap-3 overflow-x-auto pb-0.5">
+              {recentRecords.slice(0, 12).map((r) => {
+                const first = r.results[0];
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onOpenRecent(r)}
+                    className="w-16 h-16 shrink-0 rounded-2xl overflow-hidden bg-muted m-shot press-sm"
+                    aria-label={"查看生成记录：" + r.params.prompt.slice(0, 12)}
+                  >
+                    {first?.b64_json && (
+                      <img
+                        src={"data:" + first.mime + ";base64," + first.b64_json}
+                        alt={r.params.prompt}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         <input
