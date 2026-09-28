@@ -141,6 +141,13 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
     });
   };
 
+  /** 全部保存到相册（APP 环境；顺序执行避免并发写 MediaStore） */
+  const handleSaveAll = async () => {
+    for (const result of results) {
+      await handleSaveToGallery(result);
+    }
+  };
+
   if (results.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-up">
@@ -199,9 +206,20 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
           输出图库 <span className="text-foreground font-medium">{results.length}</span>
         </span>
         {results.length > 1 && (
-          <Button variant="ghost" size="sm" onClick={handleDownloadAll} className="press transition-base hover:bg-accent/60">
-            <Download className="w-4 h-4 mr-2" />
-            全部下载
+          // APP 环境 `a[download]` 无处理器（点了没反应）→ 换成原生保存；
+          // 浏览器/PWA 保持下载
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={canSaveToGallery ? handleSaveAll : handleDownloadAll}
+            className="press transition-base hover:bg-accent/60"
+          >
+            {canSaveToGallery ? (
+              <FolderDown className="w-4 h-4 mr-2" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            {canSaveToGallery ? "全部保存" : "全部下载"}
           </Button>
         )}
       </div>
@@ -235,6 +253,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     index={item.indexA}
                     onExpand={handleExpand}
                     onDownload={handleDownload}
+                    onSaveToGallery={handleSaveToGallery}
+                    appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
                     showModelAlways
                   />
@@ -243,6 +263,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     index={item.indexB}
                     onExpand={handleExpand}
                     onDownload={handleDownload}
+                    onSaveToGallery={handleSaveToGallery}
+                    appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
                     showModelAlways
                   />
@@ -257,6 +279,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               index={item.index}
               onExpand={handleExpand}
               onDownload={handleDownload}
+              onSaveToGallery={handleSaveToGallery}
+              appMode={canSaveToGallery}
               getImageSrc={getImageSrc}
             />
           );
@@ -330,15 +354,18 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                 </Button>
               </div>
 
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleDownload(results[expandedIndex])}
-                className="press"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                下载
-              </Button>
+              {/* 下载：仅浏览器/PWA（APP 环境 a[download] 无效，由「保存到相册」替代） */}
+              {!canSaveToGallery && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleDownload(results[expandedIndex])}
+                  className="press"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  下载
+                </Button>
+              )}
 
               {/* 保存到系统相册：仅 Capacitor 壳内显示 */}
               {canSaveToGallery && (
@@ -388,6 +415,8 @@ function ResultCard({
   index,
   onExpand,
   onDownload,
+  onSaveToGallery,
+  appMode = false,
   getImageSrc,
   showModelAlways = false,
 }: {
@@ -395,6 +424,10 @@ function ResultCard({
   index: number;
   onExpand: (index: number) => void;
   onDownload: (r: GenerateResult) => void;
+  /** APP 环境下的保存到相册动作（appMode 为真时替代下载） */
+  onSaveToGallery?: (r: GenerateResult) => void;
+  /** Capacitor 壳内：卡片操作钮换成保存到相册 */
+  appMode?: boolean;
   getImageSrc: (r: GenerateResult) => string;
   /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
   showModelAlways?: boolean;
@@ -418,20 +451,36 @@ function ResultCard({
       >
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
-      {/* 下载按钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐 */}
+      {/* 卡片操作钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐。
+          APP 环境 a[download] 无效 → 同一位置换成原生「保存到相册」 */}
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-        <Button
-          variant="secondary"
-          size="icon"
-          className="press"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDownload(result);
-          }}
-          aria-label="下载"
-        >
-          <Download className="w-4 h-4" />
-        </Button>
+        {appMode ? (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="press"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSaveToGallery?.(result);
+            }}
+            aria-label="保存到相册"
+          >
+            <FolderDown className="w-4 h-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="press"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload(result);
+            }}
+            aria-label="下载"
+          >
+            <Download className="w-4 h-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

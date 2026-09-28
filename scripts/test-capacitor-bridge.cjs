@@ -81,14 +81,21 @@ function check(name, pass, detail) {
   //    点卡片左上角：中心是常驻下载按钮（带 stopPropagation），点中心不会展开
   await page.locator(".aspect-square").first().click({ position: { x: 40, y: 40 } });
   await page.waitForTimeout(600);
-  const saveVisible = await page
-    .getByRole("button", { name: "保存到相册" })
+  // APP 环境 a[download] 无处理器：预览头与卡片操作钮都应是「保存到相册」，不出现「下载」
+  const saveButtons = await page.getByRole("button", { name: "保存到相册" }).count();
+  check("APP 环境保存入口齐全（卡片+预览头）", saveButtons >= 2, "数量=" + saveButtons);
+  const downloadVisible = await page
+    .getByRole("button", { name: "下载", exact: true })
     .isVisible()
     .catch(() => false);
-  check("APP 环境下显示「保存到相册」", saveVisible);
+  check("APP 环境下不显示「下载」（无功能按钮已移除）", downloadVisible === false);
+  const cardSaveCount = await page.locator('button[aria-label="保存到相册"]').count();
+  check("卡片操作钮在 APP 环境为保存到相册", cardSaveCount >= 1, "数量=" + cardSaveCount);
+  // 预览头的保存按钮（DOM 中靠后，带文字）
+  const saveHeaderBtn = page.getByRole("button", { name: "保存到相册" }).last();
 
   // 4) 第一次保存：getAlbums → createAlbum → getAlbums → savePhoto(带 albumIdentifier)
-  await page.getByRole("button", { name: "保存到相册" }).click();
+  await saveHeaderBtn.click();
   await page.waitForTimeout(800);
   let st = await page.evaluate(() => JSON.parse(JSON.stringify(window.__capMock)));
   const mediaCalls1 = st.calls.filter((c) => c.pluginId === "Media").map((c) => c.methodName);
@@ -107,7 +114,7 @@ function check(name, pass, detail) {
   check("保存成功 toast", toastOk);
 
   // 5) 第二次保存：不重复建相册
-  await page.getByRole("button", { name: "保存到相册" }).click();
+  await saveHeaderBtn.click();
   await page.waitForTimeout(600);
   st = await page.evaluate(() => JSON.parse(JSON.stringify(window.__capMock)));
   const createAlbumCount = st.calls.filter((c) => c.methodName === "createAlbum").length;
