@@ -5,6 +5,7 @@ import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkle
 import { Button } from "@/components/ui/button";
 import { FadeInImage, ResultCard } from "@/components/ResultCard";
 import { isCapacitor } from "@/lib/capacitor-env";
+import { buildResultRenderItems } from "@/lib/result-groups";
 import {
   downloadAllResults,
   downloadResult,
@@ -62,35 +63,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   }
 
   // 按 compareGroup 聚合:同组两项并排成对比组,无组单独成项
-  type RenderItem =
-    | { type: "single"; result: GenerateResult; index: number }
-    | { type: "compare"; a: GenerateResult; b: GenerateResult; indexA: number; indexB: number };
+  const renderItems = buildResultRenderItems(results);
 
-  const renderItems: RenderItem[] = [];
-  const consumed = new Set<number>();
-  results.forEach((r, i) => {
-    if (consumed.has(i)) return;
-    if (r.compareGroup) {
-      const pairIdx = results.findIndex(
-        (r2, j) => j > i && r2.compareGroup === r.compareGroup
-      );
-      if (pairIdx > -1) {
-        consumed.add(i);
-        consumed.add(pairIdx);
-        renderItems.push({
-          type: "compare",
-          a: r,
-          b: results[pairIdx],
-          indexA: i,
-          indexB: pairIdx,
-        });
-        return;
-      }
-    }
-    renderItems.push({ type: "single", result: r, index: i });
-  });
-
-  // 展开预览:点击已展开项可关闭(toggle)
   const handleExpand = (i: number) => {
     setExpandedIndex(expandedIndex === i ? null : i);
     setZoom(1);

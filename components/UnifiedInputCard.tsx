@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
+import { ACCEPTED_TYPES, validateAndCompress, type RefQuality } from "@/lib/reference-image";
+import { useNodeBModels } from "@/hooks/useNodeBModels";
 import { TaskList } from "@/components/TaskList";
-import { buildApiHeaders } from "@/lib/api-headers";
-import { mergeCustomModels } from "@/lib/custom-models";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
 
@@ -20,8 +20,7 @@ export interface ReferenceImage {
 
 export type Quality = "1k" | "2k" | "4k";
 
-/** 参考图清晰度模式（chip 选择持久化到用户设置） */
-export type RefQuality = "auto" | "hd" | "original";
+export type { RefQuality } from "@/lib/reference-image";
 
 interface UnifiedInputCardProps {
   prompt: string;
@@ -66,7 +65,7 @@ interface UnifiedInputCardProps {
   onGenerate: () => void;
 }
 
-const SIZES: { value: AspectRatio; label: string }[] = [
+export const SIZES: { value: AspectRatio; label: string }[] = [
   { value: "auto", label: "自动" },
   { value: "1:1", label: "1:1" },
   { value: "16:9", label: "16:9" },
@@ -74,77 +73,20 @@ const SIZES: { value: AspectRatio; label: string }[] = [
   { value: "4:3", label: "4:3" },
   { value: "3:4", label: "3:4" },
 ];
-const QUALITIES: { value: Quality; label: string }[] = [
+export const QUALITIES: { value: Quality; label: string }[] = [
   { value: "1k", label: "1K" },
   { value: "2k", label: "2K" },
   { value: "4k", label: "4K" },
 ];
 /** 单次生成图片数量选项。值用 string 是为了复用 SelectChip<string> */
-const COUNTS: { value: string; label: string }[] = [
+export const COUNTS: { value: string; label: string }[] = [
   { value: "1", label: "1张" },
   { value: "2", label: "2张" },
   { value: "3", label: "3张" },
   { value: "4", label: "4张" },
 ];
 
-const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_COUNT = 8;
-// 「原图直传」单文件上限：默认对齐服务端 4MB 上限（Vercel 预设）。
-// 本地/自托管放宽 GEN_MAX_BODY_MB 时，用构建期变量同步（NEXT_PUBLIC_ORIGINAL_MAX_MB）。
-// 大图不再被直接拒收：自动/高清档一律压缩，仅原图档按此上限提示切档。
-const ORIGINAL_MAX_MB = Number(process.env.NEXT_PUBLIC_ORIGINAL_MAX_MB) || 4;
-// 自动/高清两档压缩参数（阈值内不压缩）。自动档默认值可用构建期变量覆盖。
-const COMPRESS_PRESETS: Record<
-  Exclude<RefQuality, "original">,
-  { threshold: number; edge: number; quality: number }
-> = {
-  auto: {
-    threshold:
-      (Number(process.env.NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB) || 512) * 1024,
-    edge: Number(process.env.NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE) || 1024,
-    quality: 0.85,
-  },
-  hd: { threshold: 2 * 1024 * 1024, edge: 2048, quality: 0.9 },
-};
-
-async function compressImage(  file: File,
-  mode: RefQuality
-): Promise<{ blob: Blob; mime: string }> {
-  // 原图直传：不压缩；非图片类型不走压缩
-  if (mode === "original" || !file.type.startsWith("image/")) {
-    return { blob: file, mime: file.type };
-  }
-  const preset = COMPRESS_PRESETS[mode];
-  if (file.size < preset.threshold) {
-    return { blob: file, mime: file.type };
-  }
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, preset.edge / Math.max(img.width, img.height));
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { resolve({ blob: file, mime: file.type }); return; }
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob || blob.size >= file.size) { resolve({ blob: file, mime: file.type }); return; }
-          resolve({ blob, mime: "image/jpeg" });
-        },
-        "image/jpeg",
-        preset.quality
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type }); };
-    img.src = url;
-  });
-}
 
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
@@ -169,46 +111,15 @@ export function UnifiedInputCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 对比模式跨节点：B 侧节点的模型列表按需拉取（选完节点 B 才拉，失败回退当前列表）
+  // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，移动端 ParamSheet 复用）
   const nodeBProfile = profiles.find((p) => p.id === nodeBId) ?? null;
-  const isCrossNode = !!nodeBProfile && nodeBProfile.id !== activeNodeId;
-  const [modelsB, setModelsB] = useState<ModelInfo[] | null>(null);
-  useEffect(() => {
-    if (!compareMode || !isCrossNode || !nodeBProfile) {
-      // 撤销拉取结果（异步 IIFE 内重置,避免 effect 体同步 setState）
-      void (async () => setModelsB(null))();
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/models", {
-          headers: buildApiHeaders({
-            apiKey: nodeBProfile.apiKey,
-            baseUrl: nodeBProfile.baseUrl,
-            proxyUrl: nodeBProfile.proxyUrl,
-          }),
-        });
-        const data = await res.json().catch(() => null);
-        if (!cancelled && data?.models && Array.isArray(data.models) && data.models.length > 0) {
-          const merged = mergeCustomModels(data.models, nodeBProfile.customModels);
-          setModelsB(merged);
-          // 节点 B 的模型列表与当前选择不同源:若 modelB 不在列表中，自动校正为第一个，
-          // 避免下拉显示与实际生成用的模型不一致
-          if (!merged.some((m) => m.id === modelB) && merged[0]?.id) {
-            onModelBChange(merged[0].id);
-          }
-        } else if (!cancelled) {
-          setModelsB(null);
-        }
-      } catch {
-        if (!cancelled) setModelsB(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [compareMode, isCrossNode, nodeBProfile, modelB, onModelBChange]);
+  const { modelsB, isCrossNode } = useNodeBModels({
+    compareMode,
+    nodeBProfile,
+    activeNodeId,
+    modelB,
+    onModelBChange,
+  });
   const modelBOptions = isCrossNode && modelsB ? modelsB : models;
 
   // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随。
@@ -235,28 +146,20 @@ export function UnifiedInputCard({
 
   const processFile = useCallback(async (file: File) => {
     setImgError(null);
-    if (!ACCEPTED_TYPES.includes(file.type)) { setImgError("仅支持 JPG, PNG, WEBP"); return; }
-    // 大图不再直接拒收：自动/高清档一律压缩；仅原图直传档按服务端上限提示切档
-    if (refQuality === "original" && file.size > ORIGINAL_MAX_MB * 1024 * 1024) {
-      setImgError(`原图超过 ${ORIGINAL_MAX_MB}MB，请改用「高清压缩」或「自动压缩」`);
-      return;
-    }
-    try {
-      const { blob, mime } = await compressImage(file, refQuality);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        // 函数式更新:批量多张并发处理时,闭包里的 referenceImages 是旧值,
-        // 直接展开会互相覆盖,只留最后一张
-        onReferenceImagesChange((prev) => [...prev, {
-          id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          name: file.name, base64: result, mimeType: mime,
-        }]);
-      };
-      reader.readAsDataURL(blob);
-    } catch {
-      setImgError("图片处理失败");
-    }
+    const result = await validateAndCompress(file, refQuality);
+    if ("error" in result) { setImgError(result.error); return; }
+    const { blob, mime } = result;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      // 函数式更新:批量多张并发处理时,闭包里的 referenceImages 是旧值,
+      // 直接展开会互相覆盖,只留最后一张
+      onReferenceImagesChange((prev) => [...prev, {
+        id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: file.name, base64: dataUrl, mimeType: mime,
+      }]);
+    };
+    reader.readAsDataURL(blob);
   }, [onReferenceImagesChange, refQuality]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {

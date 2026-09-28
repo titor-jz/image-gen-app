@@ -36,6 +36,8 @@ import { useApiConfig } from "@/lib/api-config-context";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
 import { isCapacitor } from "@/lib/capacitor-env";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileHome, type MobileNavApi } from "@/components/mobile/MobileHome";
 import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
@@ -126,6 +128,13 @@ export default function Home() {
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
 
+  // 6.0 移动端布局（<640px）：专注式两态推拉，经 MobileHome 渲染
+  const isMobile = useIsMobile();
+  const mobileNavRef = useRef<MobileNavApi | null>(null);
+  const handleNavApi = useCallback((api: MobileNavApi | null) => {
+    mobileNavRef.current = api;
+  }, []);
+
   // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
   //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）。
   //     showHistory 经 ref 读取、监听器只在挂载时注册一次——
@@ -144,6 +153,8 @@ export default function Home() {
       try {
         const { App } = await import("@capacitor/app");
         const l = await App.addListener("backButton", () => {
+          // 移动端接管顺序：全屏预览 → 参数/历史面板 → 结果态 → 交还此处
+          if (mobileNavRef.current?.handleBack()) return;
           if (showHistoryRef.current) {
             setShowHistory(false);
           } else {
@@ -193,6 +204,45 @@ export default function Home() {
       });
     }
   }, [setResults]);
+
+  if (isMobile) {
+    return (
+      <MobileHome
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        referenceImages={referenceImages}
+        onReferenceImagesChange={setReferenceImages}
+        models={models}
+        modelsLoading={modelsLoading}
+        selectedModel={effectiveModel}
+        onModelChange={setSelectedModel}
+        selectedSize={selectedSize}
+        onSizeChange={setSelectedSize}
+        selectedQuality={selectedQuality}
+        onQualityChange={setSelectedQuality}
+        selectedN={selectedN}
+        onNChange={setSelectedN}
+        refQuality={refQuality}
+        onRefQualityChange={setRefQuality}
+        compareMode={compareMode}
+        onCompareModeChange={setCompareMode}
+        modelB={modelB}
+        onModelBChange={setModelB}
+        profiles={profiles}
+        activeNodeId={activeId}
+        nodeBId={nodeB?.id ?? null}
+        onNodeBChange={setNodeBId}
+        results={results}
+        tasks={tasks}
+        onCancelTask={cancelTask}
+        onResumeTask={resumeTask}
+        onDismissTask={dismissTask}
+        onGenerate={handleGenerate}
+        onSelectHistory={handleSelectRecord}
+        onNavApi={handleNavApi}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-dvh bg-background">

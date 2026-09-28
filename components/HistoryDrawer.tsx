@@ -8,15 +8,11 @@
  * 数据来源：IndexedDB（通过 lib/db.getAllHistory）。
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  getAllHistory,
-  deleteAllHistory,
-  deleteHistory,
-} from "@/lib/db";
+import { useHistoryRecords } from "@/hooks/useHistoryRecords";
 import { HistoryList } from "@/components/HistoryList";
 import type { HistoryRecord } from "@/lib/types";
 
@@ -26,17 +22,11 @@ interface HistoryDrawerProps {
 }
 
 export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
-  const [records, setRecords] = useState<HistoryRecord[]>([]);
+  const { records, load, remove, clearAll } = useHistoryRecords();
   // 清空历史的两步确认状态（应用内联确认，不用 window.confirm 弹窗）
   const [confirmingClear, setConfirmingClear] = useState(false);
 
-  const loadHistory = useCallback(async () => {
-    const data = await getAllHistory();
-    setRecords(data);
-  }, []);
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- 抽屉打开时加载历史，事件驱动加载的标准写法
-  useEffect(() => { loadHistory(); }, [loadHistory]);
+  useEffect(() => { load(); }, [load]);
 
   // Esc 关闭
   useEffect(() => {
@@ -61,14 +51,10 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
       return;
     }
     setConfirmingClear(false);
-    await deleteAllHistory();
-    await loadHistory();
+    await clearAll();
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteHistory(id);
-    await loadHistory();
-  };
+  const handleDelete = remove;
 
   return (
     <>
