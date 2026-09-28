@@ -264,6 +264,116 @@
   animation: slide-down-in 260ms var(--ease-soft) both;
 }
 
+/* ============================================================
+   移动端视觉层（<640px 专用，桌面不受影响）
+   设计方向：影像工具的"暗房/工作室"质感——输入是主角、CTA 是唯一浓烈时刻、
+   中性色带品牌色偏、深度用大范围柔和投影而非细边框
+   ============================================================ */
+
+/* 环境背景：顶部品牌色光晕（柔和）+ 底部暗角，替代纯白平底 */
+.m-ambient {
+  position: relative;
+  background:
+    radial-gradient(130% 48% at 50% -6%, color-mix(in oklch, var(--primary) 10%, transparent) 0%, transparent 60%),
+    radial-gradient(120% 36% at 50% 108%, color-mix(in oklch, var(--foreground) 5%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, color-mix(in oklch, var(--background) 95%, var(--primary)) 0%, var(--background) 38%);
+}
+.dark .m-ambient {
+  background:
+    radial-gradient(130% 50% at 50% -6%, color-mix(in oklch, var(--primary) 20%, transparent) 0%, transparent 62%),
+    radial-gradient(120% 36% at 50% 108%, color-mix(in oklch, black 45%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, color-mix(in oklch, var(--background) 92%, var(--primary)) 0%, var(--background) 42%);
+}
+
+/* 主角舞台：提示词输入容器（大圆角 + 品牌色投影深度） */
+.m-stage {
+  background: var(--card);
+  border-radius: 28px;
+  border: 1px solid color-mix(in oklch, var(--border) 62%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklch, white 70%, transparent) inset,
+    0 20px 44px -30px color-mix(in oklch, var(--primary) 42%, transparent),
+    0 6px 18px -12px color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+
+/* 底部操作坞：悬浮感（非贴边卡片） */
+.m-dock {
+  background: color-mix(in oklch, var(--card) 94%, var(--primary));
+  border-radius: 26px;
+  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  box-shadow:
+    0 20px 44px -26px color-mix(in oklch, var(--foreground) 40%, transparent),
+    0 2px 8px -4px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+.dark .m-dock {
+  background: color-mix(in oklch, var(--card) 92%, var(--primary));
+  box-shadow:
+    0 20px 44px -26px color-mix(in oklch, black 72%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--primary) 10%, transparent) inset;
+}
+
+/* 品牌渐变主 CTA：唯一的浓烈时刻（禁用时退为中性，不发光） */
+.cta-brand {
+  background-image: linear-gradient(135deg, #2f7bf6 0%, #6ea0ff 52%, #8f8bff 100%);
+  color: #fff;
+  box-shadow:
+    0 14px 30px -12px rgba(66, 118, 255, 0.55),
+    0 2px 0 0 rgba(255, 255, 255, 0.18) inset;
+}
+.cta-brand:active:not(:disabled) {
+  transform: scale(0.985);
+  box-shadow:
+    0 8px 18px -10px rgba(66, 118, 255, 0.5),
+    0 2px 0 0 rgba(255, 255, 255, 0.18) inset;
+}
+.cta-brand:disabled {
+  background-image: none;
+  background-color: color-mix(in oklch, var(--muted) 88%, var(--primary));
+  color: color-mix(in oklch, var(--muted-foreground) 82%, transparent);
+  box-shadow: none;
+}
+.dark .cta-brand:disabled {
+  background-color: color-mix(in oklch, var(--muted) 90%, var(--primary));
+}
+
+/* 微标签：小号、加字距，拉开层级（大 vs 小，而不是全中号） */
+.m-micro {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+/* 胶囊芯片（节点/摘要用）：带品牌色偏的软底 */
+.m-pill {
+  background: color-mix(in oklch, var(--muted) 82%, var(--primary));
+  border-radius: 999px;
+}
+
+/* 图标组：浮起胶囊（卡面 + 微投影），替代散落图标 */
+.m-iconcluster {
+  background: var(--card);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: 0 4px 14px -8px color-mix(in oklch, var(--foreground) 35%, transparent), 0 0 0 1px color-mix(in oklch, var(--border) 55%, transparent);
+}
+.dark .m-iconcluster {
+  background: color-mix(in oklch, var(--card) 92%, var(--primary));
+  box-shadow: 0 4px 14px -8px color-mix(in oklch, black 70%, transparent), 0 0 0 1px color-mix(in oklch, var(--border) 60%, transparent);
+}
+
+/* 结果卡：移动端图像卡（大圆角 + 柔和投影，让图片本身发光） */
+.m-shot {
+  border-radius: 24px;
+  box-shadow:
+    0 18px 36px -24px color-mix(in oklch, var(--foreground) 45%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--border) 45%, transparent);
+}
+.dark .m-shot {
+  box-shadow:
+    0 18px 36px -22px color-mix(in oklch, black 80%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--border) 60%, transparent);
+}
+
 @keyframes sheet-up {
   from {
     transform: translateY(100%);

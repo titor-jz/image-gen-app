@@ -67,6 +67,7 @@ export function ResultCard({
   appMode = false,
   getImageSrc,
   showModelAlways = false,
+  className = "",
 }: {
   result: GenerateResult;
   index: number;
@@ -79,10 +80,12 @@ export function ResultCard({
   getImageSrc: (r: GenerateResult) => string;
   /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
   showModelAlways?: boolean;
+  /** 外层附加类（移动端 m-shot 等；桌面不传保持原样） */
+  className?: string;
 }) {
   return (
     <div
-      className="group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up"
+      className={`group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up ${className}`}
       style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
       onClick={() => onExpand(index)}
     >

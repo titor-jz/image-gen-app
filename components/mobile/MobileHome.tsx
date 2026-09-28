@@ -3,17 +3,16 @@
 /**
  * MobileHome - 移动端首页（<640px）：专注式两态推拉
  *
- * 输入态（Composer）⇄ 结果态（ResultsView），无常驻导航栏。
- * - 点生成：切结果态（任务进度置顶可见）
- * - 顶部栏随状态切换：输入态=节点/历史/主题/设置；结果态=‹ 返回 + 标题
- * - ParamSheet / HistorySheet / FullscreenPreview 为底部/全屏弹层
- * - 安卓返回键经 navApiRef 由 page.tsx 统一接管（顺序：预览 → 面板 → 结果态 → 退出）
+ * 视觉（m-* 样式层）：环境光晕背景（m-ambient）、顶栏节点胶囊 + 图标组（m-iconcluster）、
+ * 节点切换用底部面板（替代桌面下拉——同时规避左缘溢出 bug）。
+ *
+ * 交互：输入态（Composer）⇄ 结果态（ResultsView）；点生成切结果态；
+ * 安卓返回键经 onNavApi 由 page.tsx 统一接管（顺序：预览 → 面板 → 结果态 → 退出）。
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Clock, Sun, Moon, ChevronLeft } from "lucide-react";
+import { Clock, Sun, Moon, ChevronLeft, Server, ChevronDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { NodeSwitcher } from "@/components/NodeSwitcher";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { HistoryList } from "@/components/HistoryList";
@@ -24,6 +23,7 @@ import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
 import { useTheme } from "@/hooks/useTheme";
 import { useHistoryRecords } from "@/hooks/useHistoryRecords";
 import { useNodeBModels } from "@/hooks/useNodeBModels";
+import { useApiConfig } from "@/lib/api-config-context";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { SIZES, QUALITIES, type Quality, type RefQuality, type ReferenceImage } from "@/components/UnifiedInputCard";
 import type { ApiProfile } from "@/lib/api-config-context";
@@ -79,16 +79,20 @@ export function MobileHome(props: MobileHomeProps) {
   const [view, setView] = useState<MobileView>("compose");
   const [paramOpen, setParamOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [nodeOpen, setNodeOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const { isDark, toggleTheme } = useTheme();
   const { records, load, remove, clearAll } = useHistoryRecords();
+  const { activeId, setActiveId } = useApiConfig();
   // 仅 Capacitor 壳内为真（mounted 门控，避免 hydration 不一致）
   const [appMode, setAppMode] = useState(false);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载后检测原生环境（SSR 首帧无 window.Capacitor）
     setAppMode(isCapacitor());
   }, []);
+
+  const activeNode = props.profiles.find((p) => p.id === (props.activeNodeId || activeId)) ?? null;
 
   // 历史面板打开时加载
   useEffect(() => {
@@ -145,7 +149,7 @@ export function MobileHome(props: MobileHomeProps) {
     [props]
   );
 
-  // 安卓返回键接管顺序：预览 → 参数面板 → 历史面板 → 结果态 → 交还页面（退出）
+  // 安卓返回键接管顺序：预览 → 各面板 → 结果态 → 交还页面（退出）
   const { onNavApi } = props;
   useEffect(() => {
     onNavApi?.({
@@ -153,40 +157,53 @@ export function MobileHome(props: MobileHomeProps) {
         if (previewIndex !== null) { setPreviewIndex(null); return true; }
         if (paramOpen) { setParamOpen(false); return true; }
         if (historyOpen) { setHistoryOpen(false); return true; }
+        if (nodeOpen) { setNodeOpen(false); return true; }
         if (view === "results") { setView("compose"); return true; }
         return false;
       },
     });
     return () => onNavApi?.(null);
-  }, [onNavApi, previewIndex, paramOpen, historyOpen, view]);
+  }, [onNavApi, previewIndex, paramOpen, historyOpen, nodeOpen, view]);
 
   return (
-    <div className="flex flex-col h-dvh bg-background">
+    <div className="flex flex-col h-dvh bg-background m-ambient">
       {/* 顶栏：随状态切换 */}
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border/50">
-        <div className="flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+      <header className="sticky top-0 z-40">
+        <div className="flex items-center justify-between px-4 pt-[max(0.9rem,env(safe-area-inset-top))] pb-3">
           {view === "compose" ? (
             <>
-              <NodeSwitcher />
-              <div className="flex items-center gap-1">
+              {/* 节点胶囊：点击唤出底部节点面板 */}
+              <button
+                type="button"
+                onClick={() => setNodeOpen(true)}
+                className="m-pill h-9 pl-2.5 pr-3 flex items-center gap-1.5 press max-w-40"
+                aria-label="切换 API 节点"
+              >
+                <Server className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-sm font-medium truncate">
+                  {activeNode?.name || "未配置节点"}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              </button>
+              <div className="m-iconcluster flex items-center">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="press hover:bg-accent/60"
+                  className="press rounded-full"
                   onClick={() => setHistoryOpen(true)}
                   aria-label="历史记录"
                 >
-                  <Clock className="w-4.5 h-4.5" />
+                  <Clock className="w-[18px] h-[18px]" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="press hover:bg-accent/60"
+                  className="press rounded-full"
                   onClick={toggleTheme}
                   aria-label="切换主题"
                 >
                   <span key={isDark ? "sun" : "moon"} className="block animate-fade-in">
-                    {isDark ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+                    {isDark ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
                   </span>
                 </Button>
                 <SettingsDialog />
@@ -197,15 +214,15 @@ export function MobileHome(props: MobileHomeProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1 press hover:bg-accent/60 -ml-1.5"
+                className="gap-1 press -ml-1.5 text-muted-foreground"
                 onClick={() => setView("compose")}
                 aria-label="返回输入"
               >
-                <ChevronLeft className="w-4.5 h-4.5" />
+                <ChevronLeft className="w-5 h-5" />
                 返回
               </Button>
-              <span className="text-sm font-medium text-foreground">
-                生成结果{props.results.length > 0 ? ` ${props.results.length}` : ""}
+              <span className="text-[15px] font-semibold text-foreground tracking-wide">
+                生成结果{props.results.length > 0 ? ` · ${props.results.length}` : ""}
               </span>
               <span className="w-16" aria-hidden="true" />
             </>
@@ -245,6 +262,34 @@ export function MobileHome(props: MobileHomeProps) {
           </div>
         )}
       </main>
+
+      {/* 节点切换面板（移动端用底部面板，替代桌面下拉） */}
+      <BottomSheet open={nodeOpen} onClose={() => setNodeOpen(false)} title="切换 API 节点">
+        <div className="px-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-1">
+          {props.profiles.length === 0 && (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              尚未配置节点，请在设置中添加
+            </p>
+          )}
+          {props.profiles.map((p) => {
+            const active = p.id === activeId;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { setActiveId(p.id); setNodeOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-3.5 rounded-2xl transition-base press ${
+                  active ? "bg-primary/10 text-primary" : "hover:bg-accent/50 text-foreground"
+                }`}
+              >
+                <Server className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                <span className="flex-1 text-left text-[15px] truncate">{p.name || "未命名节点"}</span>
+                {active && <Check className="w-4 h-4 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </BottomSheet>
 
       {/* 生成参数面板 */}
       <ParamSheet

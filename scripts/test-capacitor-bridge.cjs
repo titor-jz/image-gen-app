@@ -36,7 +36,7 @@ const TINY_PNG =
   check("平台判定为 android", env.isNative === true && env.platform === "android", JSON.stringify(env));
 
   // 2) 首屏 = 输入态（无大标题，Composer + 参数摘要存在）
-  const composePlaceholder = await page.locator('textarea[placeholder="描述你想生成的画面…"]').isVisible().catch(() => false);
+  const composePlaceholder = await page.locator("main textarea").isVisible().catch(() => false);
   check("首屏为输入态（Composer 可见）", composePlaceholder);
   const bigTitle = await page.evaluate(() => document.body.innerText.includes("AI 为你创造"));
   check("输入态无大标题（原生风首屏）", bigTitle === false);

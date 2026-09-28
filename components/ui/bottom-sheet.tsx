@@ -51,7 +51,7 @@ export function BottomSheet({
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-50 bg-black/50 animate-fade-in"
+        className="fixed inset-0 z-50 bg-black/60 animate-fade-in"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -59,7 +59,7 @@ export function BottomSheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] flex flex-col bg-card border-t border-border rounded-t-2xl shadow-2xl animate-sheet-up"
+        className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] flex flex-col bg-card border-t border-border rounded-t-[28px] shadow-2xl animate-sheet-up"
         style={dragY ? { transform: `translateY(${dragY}px)`, transition: "none" } : undefined}
       >
         {/* 把手 / 头部：仅此区域接管下滑关闭，避免与内容滚动冲突 */}
@@ -77,9 +77,9 @@ export function BottomSheet({
           }}
           className="shrink-0 pt-2.5 pb-2 px-4 border-b border-border"
         >
-          <div className="w-9 h-1 rounded-full bg-border mx-auto mb-2.5" aria-hidden="true" />
+          <div className="w-10 h-1.5 rounded-full bg-foreground/15 mx-auto mb-2.5" aria-hidden="true" />
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">{title}</span>
+            <span className="text-[15px] font-semibold text-foreground tracking-wide">{title}</span>
             <Button
               variant="ghost"
               size="icon"

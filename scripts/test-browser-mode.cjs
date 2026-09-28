@@ -74,7 +74,7 @@ async function seedHistory(page) {
     const page = await browser.newPage({ viewport: { width: 360, height: 800 } });
     await page.goto(BASE_URL + "/", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(1500);
-    const compose = await page.locator('textarea[placeholder="描述你想生成的画面…"]').isVisible().catch(() => false);
+    const compose = await page.locator("main textarea").isVisible().catch(() => false);
     check("[移动] 首屏为输入态", compose);
 
     await seedHistory(page);

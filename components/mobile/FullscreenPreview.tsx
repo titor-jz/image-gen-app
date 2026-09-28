@@ -42,7 +42,7 @@ export function FullscreenPreview({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] bg-black/95 flex flex-col animate-fade-in select-none"
+      className="fixed inset-0 z-[70] bg-[#05070c]/97 flex flex-col animate-fade-in select-none"
       role="dialog"
       aria-modal="true"
       aria-label="图片预览"
@@ -106,7 +106,7 @@ export function FullscreenPreview({
         <FadeInImage
           src={getResultImageSrc(result)}
           alt={result.prompt}
-          className="max-w-full max-h-full object-contain transition-slow"
+          className="max-w-full max-h-full object-contain rounded-2xl transition-slow"
           style={
             offset
               ? {
@@ -119,13 +119,13 @@ export function FullscreenPreview({
       </div>
 
       {/* 可见切换控件（不依赖手势） */}
-      <div className="shrink-0 flex items-center justify-center gap-8 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="shrink-0 flex items-center justify-center gap-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <Button
           variant="ghost"
           size="icon"
           onClick={prev}
           disabled={index === 0}
-          className="text-white hover:bg-white/10 press disabled:opacity-30"
+          className="w-12 h-12 rounded-full bg-white/10 text-white backdrop-blur-sm press disabled:opacity-30"
           aria-label="上一张"
         >
           <ChevronLeft className="w-6 h-6" />
@@ -135,7 +135,7 @@ export function FullscreenPreview({
           size="icon"
           onClick={next}
           disabled={index === results.length - 1}
-          className="text-white hover:bg-white/10 press disabled:opacity-30"
+          className="w-12 h-12 rounded-full bg-white/10 text-white backdrop-blur-sm press disabled:opacity-30"
           aria-label="下一张"
         >
           <ChevronRight className="w-6 h-6" />
