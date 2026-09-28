@@ -12,21 +12,62 @@
  */
 
 import { useState, useRef, useCallback } from "react";
-import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2 } from "lucide-react";
+import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { validateAndCompress, type RefQuality } from "@/lib/reference-image";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
 import type { HistoryRecord } from "@/lib/types";
 
-/** 灵感提示词（仅在提示词为空时展示，点选可直接编辑） */
-const SUGGESTIONS = [
+/**
+ * 灵感提示词池（仅在提示词为空时展示，点选可直接编辑）
+ * 每次打开随机取 6 条，配「换一批」手动重掷——固定几条很快会腻。
+ */
+const SUGGESTION_POOL = [
+  // 摄影 / 写实氛围
   "赛博朋克城市夜景",
-  "水彩风动物插画",
-  "极简产品海报",
+  "雨夜霓虹街拍",
+  "晨雾山间公路",
+  "老上海弄堂黄昏",
+  "雪夜小镇街灯",
+  "海边黄昏剪影",
+  "深夜书桌台灯光",
   "治愈系咖啡馆一角",
-  "电影感人物特写",
+  // 插画 / 风格
+  "水彩风动物插画",
+  "吉卜力风童年夏天",
   "国风水墨山水",
+  "像素艺术场景",
+  "蒸汽朋克机械鸟",
+  "梦境超现实场景",
+  "未来城市概念设计",
+  "太空电梯概念图",
+  // 人物
+  "电影感人物特写",
+  "复古胶片人像",
+  "汉服写真",
+  "街头潮流人像",
+  // 产品 / 商业
+  "极简产品海报",
+  "咖啡杯电商主图",
+  "香水广告概念图",
+  "甜品店菜单插画",
+  // 实用向
+  "手机壁纸 · 极简渐变",
+  "头像 · 柔和插画风",
+  "宠物头像 · 卡通化",
+  "书封设计概念",
 ];
+
+/** 从池中随机取 n 条（尽量与 exclude 不同，避免"点了没变化"） */
+function pickSuggestions(pool: string[], n: number, exclude: string[] = []): string[] {
+  const excludeSet = new Set(exclude);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, n);
+    if (!picked.every((p) => excludeSet.has(p))) return picked;
+  }
+  return [...pool].sort(() => Math.random() - 0.5).slice(0, n);
+}
 
 const MAX_COUNT = 8;
 
@@ -61,6 +102,9 @@ export function Composer({
   onOpenRecent: (record: HistoryRecord) => void;
 }) {
   const [imgError, setImgError] = useState<string | null>(null);
+  // 灵感池随机抽样：打开随机一批，「换一批」重掷（key 变化触发入场动画）
+  const [suggestions, setSuggestions] = useState<string[]>(() => pickSuggestions(SUGGESTION_POOL, 6));
+  const [suggestRoll, setSuggestRoll] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback(
@@ -169,19 +213,32 @@ export function Composer({
           </button>
         )}
 
-        {/* 灵感建议（提示词为空时） */}
+        {/* 灵感建议（提示词为空时，随机一批 + 手动换一批） */}
         {!prompt.trim() && (
           <div className="mt-5 animate-fade-up">
-            <div className="mb-2.5">
+            <div className="mb-2.5 flex items-center justify-between">
               <span className="m-micro text-muted-foreground/80">灵感</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuggestions((prev) => pickSuggestions(SUGGESTION_POOL, 6, prev));
+                  setSuggestRoll((r) => r + 1);
+                }}
+                className="flex items-center gap-1 text-xs text-muted-foreground press py-1 -my-1"
+                aria-label="换一批灵感"
+              >
+                <RefreshCw className="w-3 h-3" />
+                换一批
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((t) => (
+            <div key={suggestRoll} className="flex flex-wrap gap-2">
+              {suggestions.map((t, i) => (
                 <button
                   key={t}
                   type="button"
                   onClick={() => onPromptChange(t)}
-                  className="m-pill h-9 px-3.5 text-[13px] text-foreground/80 press active:text-primary"
+                  className="m-pill h-9 px-3.5 text-[13px] text-foreground/80 press active:text-primary animate-fade-up"
+                  style={{ animationDelay: `${i * 25}ms` }}
                 >
                   {t}
                 </button>
