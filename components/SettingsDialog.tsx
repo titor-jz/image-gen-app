@@ -78,12 +78,24 @@ function parseCustomModels(text: string): string[] {
   ];
 }
 
-export function SettingsDialog() {
+export function SettingsDialog({
+  open: openProp,
+  onOpenChange,
+}: {
+  /** 受控模式：移动端把「设置弹窗开着」纳入返回键层级；不传 = 自管理（桌面） */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+} = {}) {
   const {
     profiles, activeId, saveProfile, removeProfile, setActiveId,
   } = useApiConfig();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const dialogOpen = openProp ?? internalOpen;
+  const setDialogOpen = (v: boolean) => {
+    if (openProp === undefined) setInternalOpen(v);
+    onOpenChange?.(v);
+  };
   // 编辑态（本地草稿，不直接持久化）
   const [edit, setEdit] = useState<EditState>(EMPTY_EDIT);
   // 列表中选中的节点（= 正在编辑的对象；与激活项独立）

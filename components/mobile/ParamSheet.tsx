@@ -8,13 +8,22 @@
  * 对比相关项按需展开（progressive disclosure）。
  */
 
-import { useState } from "react";
 import { ChevronRight, GitCompare, Server } from "lucide-react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { PickerSheet } from "@/components/ui/picker-sheet";
 import { SIZES, QUALITIES, COUNTS, type Quality, type RefQuality } from "@/components/UnifiedInputCard";
 import type { ApiProfile } from "@/lib/api-config-context";
 import type { AspectRatio, ModelInfo } from "@/lib/types";
+
+/** 二级选择面板的类型（状态由 MobileHome 持有，纳入返回键层级） */
+export type ParamPickerKind =
+  | "model"
+  | "refQuality"
+  | "size"
+  | "quality"
+  | "count"
+  | "modelB"
+  | "nodeB";
 
 /** 行按钮：左标签 + 右当前值 + › */
 function ValueRow({
@@ -69,6 +78,8 @@ export function ParamSheet({
   nodeBId,
   onNodeBChange,
   modelBOptions,
+  picker,
+  onPickerChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -94,19 +105,10 @@ export function ParamSheet({
   onNodeBChange: (id: string | null) => void;
   /** 对比模式 B 侧可用模型（跨节点时为 B 节点列表） */
   modelBOptions: ModelInfo[];
+  /** 当前打开的二级选择面板（受控；null = 无） */
+  picker: ParamPickerKind | null;
+  onPickerChange: (p: ParamPickerKind | null) => void;
 }) {
-  // 当前打开的二级选择面板（null = 无）
-  const [picker, setPicker] = useState<
-    | null
-    | { kind: "model" }
-    | { kind: "refQuality" }
-    | { kind: "size" }
-    | { kind: "quality" }
-    | { kind: "count" }
-    | { kind: "modelB" }
-    | { kind: "nodeB" }
-  >(null);
-
   const modelLabel =
     models.find((m) => m.id === selectedModel)?.name ??
     (modelsLoading && models.length === 0 ? "模型加载中…" : selectedModel);
@@ -115,27 +117,27 @@ export function ParamSheet({
     <>
       <BottomSheet open={open} onClose={onClose} title="生成参数">
         <div className="px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <ValueRow label="模型" value={modelLabel} onClick={() => setPicker({ kind: "model" })} />
+          <ValueRow label="模型" value={modelLabel} onClick={() => onPickerChange("model")} />
           <ValueRow
             label="参考图"
             value={REF_QUALITY_OPTIONS.find((o) => o.value === refQuality)?.label ?? refQuality}
-            onClick={() => setPicker({ kind: "refQuality" })}
+            onClick={() => onPickerChange("refQuality")}
           />
           <ValueRow
             label="比例"
             value={SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize}
-            onClick={() => setPicker({ kind: "size" })}
+            onClick={() => onPickerChange("size")}
           />
           <ValueRow
             label="清晰度"
             value={QUALITIES.find((q) => q.value === selectedQuality)?.label ?? selectedQuality}
-            onClick={() => setPicker({ kind: "quality" })}
+            onClick={() => onPickerChange("quality")}
           />
           {!compareMode && (
             <ValueRow
               label="数量"
               value={COUNTS.find((c) => c.value === String(selectedN))?.label ?? `${selectedN}张`}
-              onClick={() => setPicker({ kind: "count" })}
+              onClick={() => onPickerChange("count")}
             />
           )}
 
@@ -158,7 +160,7 @@ export function ParamSheet({
               <ValueRow
                 label="对比模型"
                 value={modelBOptions.find((m) => m.id === modelB)?.name ?? modelB}
-                onClick={() => setPicker({ kind: "modelB" })}
+                onClick={() => onPickerChange("modelB")}
               />
               {profiles.length > 1 && (
                 <ValueRow
@@ -168,7 +170,7 @@ export function ParamSheet({
                       ? profiles.find((p) => p.id === nodeBId)?.name || "未命名节点"
                       : "同当前节点"
                   }
-                  onClick={() => setPicker({ kind: "nodeB" })}
+                  onClick={() => onPickerChange("nodeB")}
                 />
               )}
               <p className="text-xs text-muted-foreground flex items-center gap-1 pt-3">
@@ -182,56 +184,56 @@ export function ParamSheet({
 
       {/* 二级选择面板（同一时刻最多一个） */}
       <PickerSheet
-        open={picker?.kind === "model"}
-        onClose={() => setPicker(null)}
+        open={picker === "model"}
+        onClose={() => onPickerChange(null)}
         title="选择模型"
         options={models.map((m) => ({ value: m.id, label: m.name }))}
         value={selectedModel}
         onSelect={(v) => onModelChange(v)}
       />
       <PickerSheet
-        open={picker?.kind === "refQuality"}
-        onClose={() => setPicker(null)}
+        open={picker === "refQuality"}
+        onClose={() => onPickerChange(null)}
         title="参考图处理"
         options={REF_QUALITY_OPTIONS}
         value={refQuality}
         onSelect={(v) => onRefQualityChange(v)}
       />
       <PickerSheet
-        open={picker?.kind === "size"}
-        onClose={() => setPicker(null)}
+        open={picker === "size"}
+        onClose={() => onPickerChange(null)}
         title="选择比例"
         options={SIZES}
         value={selectedSize}
         onSelect={(v) => onSizeChange(v)}
       />
       <PickerSheet
-        open={picker?.kind === "quality"}
-        onClose={() => setPicker(null)}
+        open={picker === "quality"}
+        onClose={() => onPickerChange(null)}
         title="选择清晰度"
         options={QUALITIES}
         value={selectedQuality}
         onSelect={(v) => onQualityChange(v)}
       />
       <PickerSheet
-        open={picker?.kind === "count"}
-        onClose={() => setPicker(null)}
+        open={picker === "count"}
+        onClose={() => onPickerChange(null)}
         title="生成数量"
         options={COUNTS}
         value={String(selectedN)}
         onSelect={(v) => onNChange(Number(v) as 1 | 2 | 3 | 4)}
       />
       <PickerSheet
-        open={picker?.kind === "modelB"}
-        onClose={() => setPicker(null)}
+        open={picker === "modelB"}
+        onClose={() => onPickerChange(null)}
         title="对比模型"
         options={modelBOptions.map((m) => ({ value: m.id, label: m.name }))}
         value={modelBOptions.some((m) => m.id === modelB) ? modelB : (modelBOptions[0]?.id ?? "")}
         onSelect={(v) => onModelBChange(v)}
       />
       <PickerSheet
-        open={picker?.kind === "nodeB"}
-        onClose={() => setPicker(null)}
+        open={picker === "nodeB"}
+        onClose={() => onPickerChange(null)}
         title="对比节点"
         options={[
           { value: activeNodeId, label: "同当前节点" },

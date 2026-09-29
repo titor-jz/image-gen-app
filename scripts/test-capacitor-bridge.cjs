@@ -5,7 +5,7 @@
  * 运行：node scripts/test-capacitor-bridge.cjs
  * 依赖：playwright-core（devDep）+ 系统 Chrome（channel:"chrome"，无需下载浏览器）
  *
- * 覆盖：平台判定、首屏输入态、参数/历史底部面板与返回键接管、
+ * 覆盖：平台判定、首屏输入态、参数/历史底部面板与返回键接管（含二级选择与设置弹窗两层）、
  *       历史回填跳结果态、全屏预览保存到相册（含 albumIdentifier 原生契约）、
  *       返回键三态、监听器单次注册、状态栏随主题。
  */
@@ -45,15 +45,37 @@ const TINY_PNG =
   const genBtn = await page.getByRole("button", { name: "生成", exact: true }).isVisible().catch(() => false);
   check("主 CTA 生成按钮可见", genBtn);
 
+  // 2.5) 设置弹窗纳入返回键层级（P1）：返回先关弹窗、不退出应用
+  await page.getByRole("button", { name: "设置" }).click();
+  await page.waitForTimeout(500);
+  const settingsVisible = await page.getByText("API 节点设置").isVisible().catch(() => false);
+  check("设置弹窗打开", settingsVisible);
+  await page.evaluate(() => window.__capMock.fireBackButton());
+  await page.waitForTimeout(400);
+  const settingsClosed = !(await page.getByText("API 节点设置").isVisible().catch(() => false));
+  const exitAfterSettings = await page.evaluate(() => window.__capMock.exitAppCount);
+  check("返回键关闭设置弹窗（未退出应用）", settingsClosed && exitAfterSettings === 0, "exitApp=" + exitAfterSettings);
+
   // 3) 参数面板开关 + 返回键关闭面板
   await page.getByRole("button", { name: "生成参数" }).click();
   await page.waitForTimeout(500);
   const paramSheetOpen = await page.locator('[role="dialog"][aria-label="生成参数"]').isVisible().catch(() => false);
   check("参数底部面板打开", paramSheetOpen);
+  // 二级选择面板（P1）：打开后返回键应先关它、父面板仍在
+  await page.getByRole("button", { name: "参考图 自动压缩" }).click();
+  await page.waitForTimeout(500);
+  const pickerOpen = await page.locator('[role="dialog"][aria-label="参考图处理"]').isVisible().catch(() => false);
+  check("二级选择面板打开", pickerOpen);
+  await page.evaluate(() => window.__capMock.fireBackButton());
+  await page.waitForTimeout(400);
+  const pickerClosed = (await page.locator('[role="dialog"][aria-label="参考图处理"]').count()) === 0;
+  const parentStill = await page.locator('[role="dialog"][aria-label="生成参数"]').isVisible().catch(() => false);
+  check("返回键先关二级面板、父面板保留", pickerClosed && parentStill);
   await page.evaluate(() => window.__capMock.fireBackButton());
   await page.waitForTimeout(400);
   const paramSheetClosed = await page.locator('[role="dialog"][aria-label="生成参数"]').count();
-  check("返回键关闭参数面板", paramSheetClosed === 0);
+  const exitAfterSheets = await page.evaluate(() => window.__capMock.exitAppCount);
+  check("再按返回键关闭参数面板（未退出应用）", paramSheetClosed === 0 && exitAfterSheets === 0, "exitApp=" + exitAfterSheets);
 
   // 4) 种历史 → 历史面板 → 回填 → 自动切结果态
   await page.evaluate(async (png) => {

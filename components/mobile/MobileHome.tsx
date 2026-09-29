@@ -17,7 +17,7 @@ import { SettingsDialog } from "@/components/SettingsDialog";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { HistoryList } from "@/components/HistoryList";
 import { Composer } from "@/components/mobile/Composer";
-import { ParamSheet } from "@/components/mobile/ParamSheet";
+import { ParamSheet, type ParamPickerKind } from "@/components/mobile/ParamSheet";
 import { ResultsView } from "@/components/mobile/ResultsView";
 import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
 import { useTheme } from "@/hooks/useTheme";
@@ -78,6 +78,8 @@ export interface MobileHomeProps {
 export function MobileHome(props: MobileHomeProps) {
   const [view, setView] = useState<MobileView>("compose");
   const [paramOpen, setParamOpen] = useState(false);
+  const [paramPicker, setParamPicker] = useState<ParamPickerKind | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -158,15 +160,17 @@ export function MobileHome(props: MobileHomeProps) {
     onNavApi?.({
       handleBack: () => {
         if (previewIndex !== null) { setPreviewIndex(null); return true; }
+        if (paramPicker !== null) { setParamPicker(null); return true; }
         if (paramOpen) { setParamOpen(false); return true; }
         if (historyOpen) { setHistoryOpen(false); return true; }
         if (nodeOpen) { setNodeOpen(false); return true; }
+        if (settingsOpen) { setSettingsOpen(false); return true; }
         if (view === "results") { setView("compose"); return true; }
         return false;
       },
     });
     return () => onNavApi?.(null);
-  }, [onNavApi, previewIndex, paramOpen, historyOpen, nodeOpen, view]);
+  }, [onNavApi, previewIndex, paramPicker, paramOpen, historyOpen, nodeOpen, settingsOpen, view]);
 
   return (
     <div className="flex flex-col h-dvh bg-background m-ambient">
@@ -211,7 +215,7 @@ export function MobileHome(props: MobileHomeProps) {
                     {isDark ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
                   </span>
                 </Button>
-                <SettingsDialog />
+                <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
               </div>
             </>
           ) : (
@@ -301,7 +305,9 @@ export function MobileHome(props: MobileHomeProps) {
       {/* 生成参数面板 */}
       <ParamSheet
         open={paramOpen}
-        onClose={() => setParamOpen(false)}
+        onClose={() => { setParamOpen(false); setParamPicker(null); }}
+        picker={paramPicker}
+        onPickerChange={setParamPicker}
         models={props.models}
         modelsLoading={props.modelsLoading}
         selectedModel={props.selectedModel}
