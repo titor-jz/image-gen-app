@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Heart, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, FolderDown } from "lucide-react";
+import { Download, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, FolderDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FadeInImage, ResultCard } from "@/components/ResultCard";
 import { isCapacitor } from "@/lib/capacitor-env";

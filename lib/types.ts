@@ -107,8 +107,3 @@ export interface ModelInfo {
   name: string;
   supportedSizes: AspectRatio[];
 }
-
-export interface BalanceInfo {
-  balance: number;
-  currency: string;
-}

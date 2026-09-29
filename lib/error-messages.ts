@@ -23,13 +23,11 @@ export type ErrorCode =
   | "REQ_BAD_FORMAT"
   | "REQ_MISSING_PROMPT"
   | "REQ_INVALID_UPSTREAM_URL"
-  | "REQ_PARSE_FAILED"
   // 上游 API
   | "GEN_UPSTREAM_NETWORK"
   | "GEN_UPSTREAM_BAD_RESPONSE"
   | "GEN_UPSTREAM_NO_TASK_ID"
   | "GEN_UPSTREAM_FAILED"
-  | "GEN_INVALID_RESPONSE"
   // 轮询
   | "TASK_POLL_FAILED"
   | "TASK_NO_IMAGE_URL"
@@ -61,14 +59,12 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   REQ_BAD_FORMAT: "请求格式错误，请刷新页面重试",
   REQ_MISSING_PROMPT: "请输入提示词",
   REQ_INVALID_UPSTREAM_URL: "上游地址不合法（不允许内网/保留地址），请检查 API 节点配置",
-  REQ_PARSE_FAILED: "请求解析失败，请刷新页面重试",
 
   // 上游
   GEN_UPSTREAM_NETWORK: "无法连接到上游 API，请检查网络与代理设置",
   GEN_UPSTREAM_BAD_RESPONSE: "上游服务返回了无效响应，请稍后重试",
   GEN_UPSTREAM_NO_TASK_ID: "上游服务未返回任务 ID，请稍后重试",
   GEN_UPSTREAM_FAILED: "上游服务处理失败，请稍后重试",
-  GEN_INVALID_RESPONSE: "上游返回的数据无法解析",
 
   // 轮询
   TASK_POLL_FAILED: "查询任务状态失败",
@@ -97,13 +93,11 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   REQ_BAD_FORMAT: 400,
   REQ_MISSING_PROMPT: 400,
   REQ_INVALID_UPSTREAM_URL: 400,
-  REQ_PARSE_FAILED: 400,
 
   GEN_UPSTREAM_NETWORK: 502,
   GEN_UPSTREAM_BAD_RESPONSE: 502,
   GEN_UPSTREAM_NO_TASK_ID: 500,
   GEN_UPSTREAM_FAILED: 500,
-  GEN_INVALID_RESPONSE: 502,
 
   TASK_POLL_FAILED: 500,
   TASK_NO_IMAGE_URL: 500,
