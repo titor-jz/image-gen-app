@@ -149,9 +149,10 @@ export function Composer({
       {/* 输入区（可滚动） */}
       <div className="flex-1 overflow-y-auto px-4 pt-5">
         {/* 微标签：小号加字距，与下方 17px 正文拉开层级 */}
-        <div className="flex items-center gap-1.5 mb-2.5 animate-fade-up">
+        <div className="flex items-center gap-2.5 mb-2.5 animate-fade-up">
           <Sparkles className="w-3.5 h-3.5 text-primary" />
           <span className="m-micro text-primary/90">描述你的画面</span>
+          <span className="m-rule" aria-hidden="true" />
         </div>
 
         {/* 主角舞台 */}
@@ -216,8 +217,9 @@ export function Composer({
         {/* 灵感建议（提示词为空时，随机一批 + 手动换一批） */}
         {!prompt.trim() && (
           <div className="mt-5 animate-fade-up">
-            <div className="mb-2.5 flex items-center justify-between">
+            <div className="mb-2.5 flex items-center gap-2.5">
               <span className="m-micro text-muted-foreground/80">灵感</span>
+              <span className="m-rule" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => {
@@ -250,8 +252,9 @@ export function Composer({
         {/* 最近生成（点击直接看那组图） */}
         {recentRecords.length > 0 && (
           <div className="mt-6 animate-fade-up">
-            <div className="mb-2.5">
+            <div className="mb-2.5 flex items-center gap-2.5">
               <span className="m-micro text-muted-foreground/80">最近生成</span>
+              <span className="m-rule" aria-hidden="true" />
             </div>
             <div className="flex items-center gap-3 overflow-x-auto pb-0.5">
               {recentRecords.slice(0, 12).map((r) => {

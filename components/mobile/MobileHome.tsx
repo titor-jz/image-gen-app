@@ -170,6 +170,8 @@ export function MobileHome(props: MobileHomeProps) {
 
   return (
     <div className="flex flex-col h-dvh bg-background m-ambient">
+      {/* 胶片颗粒（暗房物质感；静态层，不参与交互与滚动） */}
+      <div className="m-grain" aria-hidden="true" />
       {/* 顶栏：随状态切换 */}
       <header className="sticky top-0 z-40">
         <div className="flex items-center justify-between px-4 pt-[max(0.9rem,env(safe-area-inset-top))] pb-3">

@@ -336,6 +336,27 @@
   background-color: color-mix(in oklch, var(--muted) 90%, var(--primary));
 }
 
+/* 胶片颗粒（"暗房"物质感）：静态单层，pointer-events 关闭，仅叠在移动端根容器 */
+.m-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 120px 120px;
+}
+.dark .m-grain {
+  opacity: 0.06;
+}
+
+/* 渐隐细线：微标签后的签名细节（从边框色渐隐到透明） */
+.m-rule {
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--border) 90%, transparent) 0%, transparent 100%);
+}
+
 /* 微标签：小号、加字距，拉开层级（大 vs 小，而不是全中号） */
 .m-micro {
   font-size: 11px;

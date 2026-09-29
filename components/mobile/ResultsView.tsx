@@ -58,7 +58,7 @@ export function ResultsView({
           <p className="text-[13px] mt-1 text-muted-foreground/80">返回输入画面描述，生成后在这里查看</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 [&>*]:[animation-delay:60ms]">
           {renderItems.map((item) => {
             if (item.type === "compare") {
               return (
