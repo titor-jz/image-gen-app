@@ -173,7 +173,7 @@ export function MobileHome(props: MobileHomeProps) {
       {/* 胶片颗粒（暗房物质感；静态层，不参与交互与滚动） */}
       <div className="m-grain" aria-hidden="true" />
       {/* 顶栏：随状态切换 */}
-      <header className="sticky top-0 z-40">
+      <header className="sticky top-0 z-40 relative">
         <div className="flex items-center justify-between px-4 pt-[max(0.9rem,env(safe-area-inset-top))] pb-3">
           {view === "compose" ? (
             <>
@@ -236,7 +236,7 @@ export function MobileHome(props: MobileHomeProps) {
       </header>
 
       {/* 两态容器（推拉动画） */}
-      <main className="flex-1 min-h-0">
+      <main className="flex-1 min-h-0 relative z-10">
         {view === "compose" ? (
           <div key="compose" className="h-full animate-slide-down-in">
             <Composer

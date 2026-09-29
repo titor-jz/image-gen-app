@@ -285,6 +285,36 @@
     linear-gradient(180deg, color-mix(in oklch, var(--background) 92%, var(--primary)) 0%, var(--background) 42%);
 }
 
+/* 漂移光团：极慢的品牌色光晕（26s 往返），给静态界面一点"活"的感觉；
+   transform 动画由 GPU 合成，prefers-reduced-motion 时全局降级自动生效 */
+.m-ambient::before {
+  content: "";
+  position: absolute;
+  top: -18%;
+  left: 50%;
+  width: 130%;
+  height: 46%;
+  z-index: 0;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--primary) 26%, transparent) 0%, transparent 100%);
+  filter: blur(46px);
+  animation: m-aurora 26s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.dark .m-ambient::before {
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--primary) 34%, transparent) 0%, transparent 100%);
+}
+
+@keyframes m-aurora {
+  from {
+    transform: translateX(-6%) scale(1);
+  }
+  to {
+    transform: translateX(6%) scale(1.12);
+  }
+}
+
 /* 主角舞台：提示词输入容器（大圆角 + 品牌色投影深度） */
 .m-stage {
   background: var(--card);
@@ -342,12 +372,12 @@
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.028;
+  opacity: 0.05;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 120px 120px;
 }
 .dark .m-grain {
-  opacity: 0.06;
+  opacity: 0.09;
 }
 
 /* 渐隐细线：微标签后的签名细节（从边框色渐隐到透明） */
