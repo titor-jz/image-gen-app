@@ -185,7 +185,7 @@ export function MobileHome(props: MobileHomeProps) {
                 aria-label="切换 API 节点"
               >
                 <Server className="w-4 h-4 text-primary shrink-0" />
-                <span className="text-sm font-medium truncate">
+                <span className="text-sm font-medium truncate min-w-0">
                   {activeNode?.name || "未配置节点"}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -290,7 +290,7 @@ export function MobileHome(props: MobileHomeProps) {
                 }`}
               >
                 <Server className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
-                <span className="flex-1 text-left text-[15px] truncate">{p.name || "未命名节点"}</span>
+                <span className="flex-1 min-w-0 text-left text-[15px] truncate">{p.name || "未命名节点"}</span>
                 {active && <Check className="w-4 h-4 shrink-0" />}
               </button>
             );

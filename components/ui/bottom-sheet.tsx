@@ -78,8 +78,8 @@ export function BottomSheet({
           className="shrink-0 pt-2.5 pb-2 px-4 border-b border-border"
         >
           <div className="w-10 h-1.5 rounded-full bg-foreground/15 mx-auto mb-2.5" aria-hidden="true" />
-          <div className="flex items-center justify-between">
-            <span className="text-[15px] font-semibold text-foreground tracking-wide">{title}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-foreground tracking-wide">{title}</span>
             <Button
               variant="ghost"
               size="icon"

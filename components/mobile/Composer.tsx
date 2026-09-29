@@ -306,7 +306,7 @@ export function Composer({
             className="w-full h-10 flex items-center justify-between gap-2 px-2 press rounded-xl"
             aria-label="生成参数"
           >
-            <span className="text-[13px] text-muted-foreground truncate">{paramSummary}</span>
+            <span className="flex-1 min-w-0 text-left text-[13px] text-muted-foreground truncate">{paramSummary}</span>
             <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
 

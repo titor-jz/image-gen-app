@@ -42,7 +42,7 @@ export function PickerSheet<T extends string>({
                 selected ? "bg-primary/10 text-primary" : "hover:bg-accent/50 text-foreground"
               }`}
             >
-              <span className="flex-1 text-left text-[15px] truncate">{opt.label}</span>
+              <span className="flex-1 min-w-0 text-left text-[15px] truncate">{opt.label}</span>
               {selected && <Check className="w-4 h-4 shrink-0" />}
             </button>
           );

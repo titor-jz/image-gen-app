@@ -270,9 +270,12 @@
    中性色带品牌色偏、深度用大范围柔和投影而非细边框
    ============================================================ */
 
-/* 环境背景：顶部品牌色光晕（柔和）+ 底部暗角，替代纯白平底 */
+/* 环境背景：顶部品牌色光晕（柔和）+ 底部暗角，替代纯白平底。
+   overflow: hidden 必需——裁剪 ::before 光团（宽 130%），否则页面横向溢出，
+   Android WebView 会把 fixed 元素按滚动宽度渲染导致右缘被裁 */
 .m-ambient {
   position: relative;
+  overflow: hidden;
   background:
     radial-gradient(130% 48% at 50% -6%, color-mix(in oklch, var(--primary) 10%, transparent) 0%, transparent 60%),
     radial-gradient(120% 36% at 50% 108%, color-mix(in oklch, var(--foreground) 5%, transparent) 0%, transparent 62%),

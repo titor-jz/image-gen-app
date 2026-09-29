@@ -33,7 +33,7 @@ function ValueRow({
       className="w-full flex items-center gap-3 py-3.5 border-b border-border/40 last:border-b-0 press"
     >
       <span className="text-[15px] text-foreground shrink-0">{label}</span>
-      <span className="flex-1 text-right text-[15px] text-muted-foreground truncate">{value}</span>
+      <span className="flex-1 min-w-0 text-right text-[15px] text-muted-foreground truncate">{value}</span>
       <ChevronRight className="w-4 h-4 text-muted-foreground/60 shrink-0" />
     </button>
   );
