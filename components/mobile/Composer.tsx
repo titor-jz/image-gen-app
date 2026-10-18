@@ -12,9 +12,10 @@
  */
 
 import { useState, useRef, useCallback } from "react";
-import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { validateAndCompress, type RefQuality } from "@/lib/reference-image";
+import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
 import type { HistoryRecord } from "@/lib/types";
 
@@ -83,6 +84,8 @@ export function Composer({
   canGenerate,
   recentRecords,
   onOpenRecent,
+  onOptimizePrompt,
+  optimizeLoading,
 }: {
   prompt: string;
   onPromptChange: (v: string) => void;
@@ -100,12 +103,19 @@ export function Composer({
   /** 最近历史（缩略图轨，点开直接看那组图） */
   recentRecords: HistoryRecord[];
   onOpenRecent: (record: HistoryRecord) => void;
+  /** 优化提示词：走节点上游的对话模型改写，结果回填输入框（见 app/api/optimize） */
+  onOptimizePrompt: () => void;
+  /** 改写请求进行中（按钮转 loading，防连点） */
+  optimizeLoading?: boolean;
 }) {
   const [imgError, setImgError] = useState<string | null>(null);
   // 灵感池随机抽样：打开随机一批，「换一批」重掷（key 变化触发入场动画）
   const [suggestions, setSuggestions] = useState<string[]>(() => pickSuggestions(SUGGESTION_POOL, 6));
   const [suggestRoll, setSuggestRoll] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 优化后文本会变长，输入框跟着长高（超过 260px 转内部滚动）
+  useAutoGrowTextarea(textareaRef, prompt, 260);
 
   const processFile = useCallback(
     async (file: File) => {
@@ -158,6 +168,7 @@ export function Composer({
         {/* 主角舞台 */}
         <div className="m-stage p-6 animate-fade-up [animation-delay:40ms]">
           <textarea
+            ref={textareaRef}
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             placeholder="例如：雨夜霓虹下的赛博朋克街道，电影感广角…"
@@ -165,6 +176,25 @@ export function Composer({
             rows={4}
           />
           {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
+
+          {/* 提示词优化：有输入才出现（空态这一格让给下方灵感池，不抢位） */}
+          {prompt.trim() !== "" && (
+            <div className="mt-3 flex justify-end animate-fade-in">
+              <button
+                type="button"
+                onClick={onOptimizePrompt}
+                disabled={optimizeLoading}
+                className="m-pill h-8 px-3 inline-flex items-center gap-1.5 text-xs text-foreground/80 press active:text-primary disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {optimizeLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5" />
+                )}
+                {optimizeLoading ? "优化中…" : "优化提示词"}
+              </button>
+            </div>
+          )}
 
           {/* 参考图轨（舞台内） */}
           {(referenceImages.length > 0 || !isFull) && (

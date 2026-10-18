@@ -11,7 +11,7 @@
  *  - 「测试」→ 用表单当前值测试，不影响已保存配置
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Settings,
   CheckCircle2,
@@ -31,6 +31,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useApiConfig, type ApiProfile } from "@/lib/api-config-context";
+import { buildApiHeaders } from "@/lib/api-headers";
 import { parseErrorResponse } from "@/lib/error-messages";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -88,6 +89,7 @@ export function SettingsDialog({
 } = {}) {
   const {
     profiles, activeId, saveProfile, removeProfile, setActiveId,
+    optimizeId, setOptimizeId,
   } = useApiConfig();
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -104,6 +106,68 @@ export function SettingsDialog({
 
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
+
+  // ---- 提示词优化：节点 + 模型（模型跟节点走，存该节点的 optimizeModel） ----
+  const optimizeNode = profiles.find((p) => p.id === (optimizeId || activeId)) ?? profiles[0] ?? null;
+  const optNodeId = optimizeNode?.id ?? "";
+  const optNodeBase = optimizeNode?.baseUrl ?? "";
+  const optNodeKey = optimizeNode?.apiKey ?? "";
+  const optNodeProxy = optimizeNode?.proxyUrl ?? "";
+  const [modelDraft, setModelDraft] = useState("");
+  // 列表带节点归属：切换节点后，旧节点的列表在返回前不会被误用（避免选到对新节点无效的模型）
+  const [chatModels, setChatModels] = useState<{ nodeId: string; ids: string[] }>({
+    nodeId: "",
+    ids: [],
+  });
+  const chatModelIds = chatModels.nodeId === optNodeId ? chatModels.ids : [];
+
+  // 只在打开弹窗或切换节点时同步草稿：外部保存（跨标签页 / 提交）不覆盖正在输入的值
+  const syncedNodeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!dialogOpen) {
+      syncedNodeRef.current = null;
+      return;
+    }
+    if (syncedNodeRef.current === optNodeId) return;
+    syncedNodeRef.current = optNodeId;
+    setModelDraft(optimizeNode?.optimizeModel ?? "");
+  }, [dialogOpen, optNodeId, optimizeNode?.optimizeModel]);
+
+  // 拉取该节点的对话模型列表（失败只是没有下拉，手填仍可用）
+  useEffect(() => {
+    if (!dialogOpen || !optNodeId) return;
+    let cancelled = false;
+    const headers = buildApiHeaders({
+      apiKey: optNodeKey,
+      baseUrl: optNodeBase,
+      proxyUrl: optNodeProxy,
+    });
+    void (async () => {
+      try {
+        const res = await fetch("/api/models?type=chat", { headers });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        const list = Array.isArray(data?.models)
+          ? data.models
+              .map((m: { id?: unknown }) => (typeof m?.id === "string" ? m.id : ""))
+              .filter(Boolean)
+          : [];
+        setChatModels({ nodeId: optNodeId, ids: list });
+      } catch {
+        if (!cancelled) setChatModels({ nodeId: optNodeId, ids: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, optNodeId, optNodeBase, optNodeKey, optNodeProxy]);
+
+  const commitOptimizeModel = () => {
+    if (!optimizeNode) return;
+    const value = modelDraft.trim();
+    if (value === (optimizeNode.optimizeModel ?? "")) return;
+    saveProfile({ ...optimizeNode, optimizeModel: value });
+  };
 
   // 打开弹窗时：选中当前激活的节点开始编辑；无任何配置则进入新建态。
   // 依赖仅 [dialogOpen]：弹窗开着的时候 profiles/activeId 变化（启用切换、
@@ -285,6 +349,61 @@ export function SettingsDialog({
               <Plus className="w-3.5 h-3.5" />
               新建节点
             </Button>
+          </div>
+
+          {/* 提示词优化节点：图像专用中转往往没有对话模型，可在这里另指一个通用节点 */}
+          <div className="space-y-2 border-t border-border pt-3">
+            <label htmlFor="settings-optimize-node" className="text-sm text-muted-foreground block">
+              提示词优化节点
+            </label>
+            <select
+              id="settings-optimize-node"
+              value={optimizeId}
+              onChange={(e) => setOptimizeId(e.target.value)}
+              className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary/60"
+            >
+              <option value="">跟随当前节点</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name || "未命名节点"}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              「优化提示词」需要一个支持对话模型的节点；当前节点只做生图时，把它指向另一个通用节点即可。
+            </p>
+
+            <label htmlFor="settings-optimize-model" className="text-sm text-muted-foreground block pt-1">
+              优化模型
+            </label>
+            <Input
+              id="settings-optimize-model"
+              list="settings-optimize-model-options"
+              placeholder={optimizeNode ? "留空自动挑选，或从列表选择" : "先添加节点"}
+              value={modelDraft}
+              disabled={!optimizeNode}
+              onChange={(e) => setModelDraft(e.target.value)}
+              onBlur={commitOptimizeModel}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitOptimizeModel();
+                }
+              }}
+            />
+            {/* datalist：点开即见该节点的对话模型，同时保留手填（中转模型名可能不在列表里） */}
+            <datalist id="settings-optimize-model-options">
+              {chatModelIds.map((id) => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              {!optimizeNode
+                ? "添加节点后可选择对话模型"
+                : chatModelIds.length > 0
+                  ? `从该节点 /models 取的对话模型（${chatModelIds.length} 个），留空则由服务端自动挑选`
+                  : "该节点未返回对话模型列表，可直接手动填写模型名"}
+            </p>
           </div>
 
           {/* 编辑表单 */}

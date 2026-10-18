@@ -27,9 +27,11 @@ npm run deploy:cf      # Cloudflare 部署
 浏览器 → app/api/* 路由（无状态透传代理）→ 上游图像 API
   POST /api/generate          → /images/generations/async 提交任务
   GET  /api/task/[taskId]     → 轮询；/content 取图
+  POST /api/optimize          → /chat/completions 提示词改写（可走独立节点）
 ```
 
 - **服务端不存任何数据**。API Key / Base URL / 代理在浏览器 localStorage，经 `x-api-key` / `x-base-url` / `x-proxy-url` 头透传（`lib/api-headers.ts`）。新增 API 路由也必须走透传模式，不得引入服务端存储。
+- **提示词优化可走独立节点**：设置里「提示词优化节点」（`image-gen-optimize-node`，空 = 跟随当前节点）。图像专用中转没有对话模型时另指一个通用节点；`/api/optimize` 自动挑对话模型（`/models` 为空时按常见型号探测），失败保留原文、不静默降级。
 - **历史图存 IndexedDB**（`lib/db.ts`，用 `idb`）；设置存 localStorage（`lib/user-settings.ts`）。
 - **上游 HTTP 统一走 `lib/http-client.ts`**（undici，为支持 ProxyAgent 代理），不要换成全局 fetch。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。

@@ -15,12 +15,12 @@ export interface HttpResult {
 
 export async function httpRequest(
   urlStr: string,
-  options: { headers?: Record<string, string>; proxyUrl?: string } = {}
+  options: { headers?: Record<string, string>; proxyUrl?: string; timeoutMs?: number } = {}
 ): Promise<HttpResult> {
   const fetchInit: UndiciRequestInit = {
     method: "GET",
     headers: options.headers,
-    signal: AbortSignal.timeout(GET_TIMEOUT_MS),
+    signal: AbortSignal.timeout(options.timeoutMs ?? GET_TIMEOUT_MS),
   };
   if (options.proxyUrl) {
     fetchInit.dispatcher = new ProxyAgent(options.proxyUrl);
@@ -77,12 +77,15 @@ export async function httpFormDataRequest(
  * 超时默认 55s：必须低于 Vercel serverless maxDuration（60s，见 vercel.json），
  * 否则同步生图分支会先被平台杀掉，客户端只能看到连接中断。
  * 本地/自托管可用 GEN_TIMEOUT_MS 放宽。
+ *
+ * timeoutMs：按调用场景覆盖超时（如提示词改写只给 25s，不值得让用户干等 55s）。
  */
 export async function httpJsonPost(
   urlStr: string,
   body: unknown,
   extraHeaders: Record<string, string> = {},
-  proxyUrl?: string
+  proxyUrl?: string,
+  timeoutMs?: number
 ): Promise<HttpResult> {
   const fetchInit: UndiciRequestInit = {
     method: "POST",
@@ -91,7 +94,7 @@ export async function httpJsonPost(
       ...extraHeaders,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(GEN_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs ?? GEN_TIMEOUT_MS),
   };
   if (proxyUrl) {
     fetchInit.dispatcher = new ProxyAgent(proxyUrl);

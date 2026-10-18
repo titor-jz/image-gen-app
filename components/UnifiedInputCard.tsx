@@ -2,11 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server, Wand2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { ACCEPTED_TYPES, validateAndCompress, type RefQuality } from "@/lib/reference-image";
 import { useNodeBModels } from "@/hooks/useNodeBModels";
+import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { TaskList } from "@/components/TaskList";
 import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
@@ -63,6 +64,10 @@ interface UnifiedInputCardProps {
   /** 移除超时/残留任务行 */
   onDismissTask: (id: string) => void;
   onGenerate: () => void;
+  /** 优化提示词：走节点上游的对话模型改写，结果回填输入框（见 app/api/optimize） */
+  onOptimizePrompt: () => void;
+  /** 改写请求进行中（按钮转 loading，防连点） */
+  optimizeLoading?: boolean;
 }
 
 export const SIZES: { value: AspectRatio; label: string }[] = [
@@ -96,7 +101,7 @@ export function UnifiedInputCard({
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
   tasks, onCancelTask, onResumeTask, onDismissTask,
-  onGenerate,
+  onGenerate, onOptimizePrompt, optimizeLoading,
 }: UnifiedInputCardProps) {
   const [isDragging, setIsDragging] = useState(false);
   /** 整卡拖放：拖文件悬停在卡片任意位置时高亮（区别于小虚线框的 isDragging） */
@@ -110,6 +115,8 @@ export function UnifiedInputCard({
   const [mentionRect, setMentionRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 优化后文本会变长，输入框跟着长高（超过 240px 转内部滚动）
+  useAutoGrowTextarea(textareaRef, prompt, 240);
 
   // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，移动端 ParamSheet 复用）
   const nodeBProfile = profiles.find((p) => p.id === nodeBId) ?? null;
@@ -296,7 +303,8 @@ export function UnifiedInputCard({
             onKeyDown={handlePromptKeyDown}
             onPaste={handlePaste}
             placeholder="在此处拖入图片，并写入提示词"
-            className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed"
+            /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
+            className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
             rows={4}
           />
           {prompt && (
@@ -304,6 +312,24 @@ export function UnifiedInputCard({
               <Eraser className="w-3.5 h-3.5 text-muted-foreground" />
             </Button>
           )}
+        </div>
+
+        {/* 提示词优化：走节点上游的对话模型改写（消耗少量额度）；连点可换一版，撤销在 toast 里 */}
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onOptimizePrompt}
+            disabled={!prompt.trim() || optimizeLoading}
+            title="用节点上游的对话模型改写提示词（消耗少量额度）"
+            className="toolbar-chip press justify-center min-w-[5.5rem] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/50 disabled:hover:border-border/50 disabled:hover:shadow-none"
+          >
+            {optimizeLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5" />
+            )}
+            {optimizeLoading ? "优化中…" : "优化提示词"}
+          </button>
         </div>
 
         {/* @ 提及建议：portal 到 body + fixed 定位，避免被卡片 overflow-hidden 裁剪导致图片多时看不到 */}

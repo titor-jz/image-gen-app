@@ -69,6 +69,10 @@ export interface MobileHomeProps {
   onResumeTask: (id: string) => void;
   onDismissTask: (id: string) => void;
   onGenerate: () => void;
+  /** 优化提示词（走节点上游的对话模型改写，结果回填输入框） */
+  onOptimizePrompt: () => void;
+  /** 改写请求进行中（按钮 loading） */
+  optimizeLoading?: boolean;
   // 历史
   onSelectHistory: (record: HistoryRecord) => void;
   /** 返回键接管：MobileHome 挂载/状态变化时上报导航 API（page 侧写入自己的 ref） */
@@ -257,6 +261,8 @@ export function MobileHome(props: MobileHomeProps) {
               canGenerate={!!props.prompt.trim()}
               recentRecords={records}
               onOpenRecent={handleSelectHistory}
+              onOptimizePrompt={props.onOptimizePrompt}
+              optimizeLoading={props.optimizeLoading}
             />
           </div>
         ) : (

@@ -6,6 +6,7 @@
 ## 功能
 
 - 文生图 / 参考图（拖拽、粘贴、`@提及` 引用；压缩档位可选：自动压缩 / 高清压缩 / 原图直传）
+- 一键优化提示词（用节点上游的对话模型改写；可指定独立的「优化节点」，失败保留原文、可撤销；节点无对话模型时可退回本地规则）
 - 每张图独立任务：并发生成、单张取消、指数退避轮询、进度展示
 - 多模型对比模式（两个模型并排出图）
 - 60s 结果缓存 + IndexedDB 历史（仅存本地，不经服务端持久化）
@@ -18,6 +19,8 @@
          POST /api/generate            → /images/generations/async 提交任务
          GET  /api/task/[taskId]       → /images/tasks/{id} 轮询状态
          GET  /api/task/[id]/content   → /images/tasks/{id}/content 取图
+         POST /api/optimize            → /chat/completions 提示词改写（可走独立节点）
+         GET  /api/models?type=chat    → 对话模型列表（设置里「优化模型」下拉用）
 ```
 
 服务端不存储任何数据；API Key 存在浏览器 localStorage，经 `x-api-key` / `x-base-url` / `x-proxy-url` 请求头透传。
@@ -41,6 +44,10 @@ npm run dev
   | `GEN_TIMEOUT_MS` | 55000 | 上游提交/同步生图超时（须低于 Vercel maxDuration，自托管可放宽到 300000） |
   | `HTTP_GET_TIMEOUT_MS` | 30000 | 上游 GET（轮询/取图）超时 |
   | `GEN_MAX_BODY_MB` | 4 | 生成请求体上限（MB），自托管可放宽到 20 |
+  | `OPT_TIMEOUT_MS` | 45000 | 提示词改写单次上游超时（推理系模型延迟波动大） |
+  | `OPT_TOTAL_BUDGET_MS` | 50000 | 提示词改写整请求总预算（含模型探测与逐候选重试，须低于平台 60s） |
+  | `OPT_MODEL` | 空 | 提示词改写的对话模型名（优先于自动挑选；也可在节点设置里填） |
+  | `OPT_MAX_BODY_MB` | 1 | 提示词改写请求体上限（MB） |
   | `NEXT_PUBLIC_REF_COMPRESS_THRESHOLD_KB` | 512 | 参考图「自动压缩」档阈值（KB），构建期注入 |
   | `NEXT_PUBLIC_REF_COMPRESS_MAX_EDGE` | 1024 | 「自动压缩」档最长边（px），构建期注入 |
   | `NEXT_PUBLIC_ORIGINAL_MAX_MB` | 4 | 「原图直传」档单图上限（MB），对齐 `GEN_MAX_BODY_MB` 时同步调整 |

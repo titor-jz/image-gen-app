@@ -28,6 +28,10 @@ export type ErrorCode =
   | "GEN_UPSTREAM_BAD_RESPONSE"
   | "GEN_UPSTREAM_NO_TASK_ID"
   | "GEN_UPSTREAM_FAILED"
+  // 提示词改写（/api/optimize）
+  | "OPT_NO_CHAT_MODEL"
+  | "OPT_UPSTREAM_FAILED"
+  | "OPT_BAD_RESPONSE"
   // 轮询
   | "TASK_POLL_FAILED"
   | "TASK_NO_IMAGE_URL"
@@ -66,6 +70,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   GEN_UPSTREAM_NO_TASK_ID: "上游服务未返回任务 ID，请稍后重试",
   GEN_UPSTREAM_FAILED: "上游服务处理失败，请稍后重试",
 
+  // 提示词改写
+  OPT_NO_CHAT_MODEL: "该节点没有可用的对话模型，无法用 AI 改写提示词",
+  OPT_UPSTREAM_FAILED: "AI 改写失败，请稍后重试",
+  OPT_BAD_RESPONSE: "AI 返回的改写结果无法使用，请重试",
+
   // 轮询
   TASK_POLL_FAILED: "查询任务状态失败",
   TASK_NO_IMAGE_URL: "任务成功但未返回图片地址",
@@ -98,6 +107,10 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   GEN_UPSTREAM_BAD_RESPONSE: 502,
   GEN_UPSTREAM_NO_TASK_ID: 500,
   GEN_UPSTREAM_FAILED: 500,
+
+  OPT_NO_CHAT_MODEL: 502,
+  OPT_UPSTREAM_FAILED: 502,
+  OPT_BAD_RESPONSE: 502,
 
   TASK_POLL_FAILED: 500,
   TASK_NO_IMAGE_URL: 500,

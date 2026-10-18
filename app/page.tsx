@@ -33,8 +33,10 @@ import { ResultGrid } from "@/components/ResultGrid";
 import { getSettings } from "@/lib/user-settings";
 import { useModels } from "@/hooks/useModels";
 import { useApiConfig } from "@/lib/api-config-context";
+import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
+import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MobileHome, type MobileNavApi } from "@/components/mobile/MobileHome";
@@ -77,15 +79,33 @@ export default function Home() {
       setSelectedQuality(settings.defaultQuality as Quality);
     if (settings.defaultN) setSelectedN(settings.defaultN);
     if (settings.refQuality) setRefQuality(settings.refQuality);
+    // ?prompt=xxx 预填（分享链接 / 自测用）：必须在挂载后读，SSR 首帧保持空串
+    const initialPrompt = new URLSearchParams(window.location.search).get("prompt");
+    if (initialPrompt) setPrompt(initialPrompt);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   // 2.5 API 节点配置（多套配置,当前激活项用于生成;对比模式可选第二节点）
-  const { profiles, activeId } = useApiConfig();
+  const { profiles, activeId, optimizeId } = useApiConfig();
   const activeNode = profiles.find((p) => p.id === activeId) ?? null;
   const nodeB = compareMode && nodeBId
     ? profiles.find((p) => p.id === nodeBId) ?? null
     : null;
+
+  // 2.6 提示词优化：走节点上游的对话模型改写（/api/optimize 透传，失败时保留原文）
+  //     图像专用中转常常没有对话模型，所以这里按「设置里的优化节点」独立取一套 Key；
+  //     画幅与是否带参考图一并交给模型，让改写贴合当前这次生成
+  const optimizeEndpoint = resolveOptimizeEndpoint(profiles, optimizeId, activeId);
+  const { optimize: handleOptimizePrompt, loading: optimizeLoading } = usePromptOptimize({
+    prompt,
+    onPromptChange: setPrompt,
+    apiKey: optimizeEndpoint?.apiKey ?? "",
+    baseUrl: optimizeEndpoint?.baseUrl ?? "",
+    proxyUrl: optimizeEndpoint?.proxyUrl ?? "",
+    size: selectedSize,
+    hasReference: referenceImages.length > 0,
+    optimizeModel: optimizeEndpoint?.optimizeModel ?? "",
+  });
 
   // 3. 数据：模型列表
   const { models, loading: modelsLoading } = useModels();
@@ -240,6 +260,8 @@ export default function Home() {
         onGenerate={handleGenerate}
         onSelectHistory={handleSelectRecord}
         onNavApi={handleNavApi}
+        onOptimizePrompt={handleOptimizePrompt}
+        optimizeLoading={optimizeLoading}
       />
     );
   }
@@ -299,6 +321,8 @@ export default function Home() {
               onResumeTask={resumeTask}
               onDismissTask={dismissTask}
               onGenerate={handleGenerate}
+              onOptimizePrompt={handleOptimizePrompt}
+              optimizeLoading={optimizeLoading}
             />
           </div>
 
