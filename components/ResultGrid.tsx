@@ -126,7 +126,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
-                    getImageSrc={getImageSrc}
+                    getImageSrc={getImageSrc}
                   />
                   <ResultCard
                     result={item.b}
@@ -135,7 +135,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
-                    getImageSrc={getImageSrc}
+                    getImageSrc={getImageSrc}
                   />
                 </div>
               </div>
@@ -196,6 +196,14 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
+              {/* 生成渠道信息：与结果卡/移动端全屏保持一致 */}
+              <span className="ml-1 max-w-64 truncate text-xs text-muted-foreground">
+                {results[expandedIndex].nodeName ? `${results[expandedIndex].nodeName} · ` : ""}
+                {results[expandedIndex].model}
+                {results[expandedIndex].size && results[expandedIndex].size !== "auto"
+                  ? ` · ${results[expandedIndex].size}`
+                  : ""}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
