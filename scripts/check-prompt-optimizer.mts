@@ -14,6 +14,7 @@ import {
 import { resolveOptimizeEndpoint } from "../lib/optimize-endpoint.ts";
 import { MAX_PROMPT_CHARS } from "../lib/prompt-rules.ts";
 import { parseModelIds, parseModelEntries } from "../lib/model-list.ts";
+import { upstreamErrorHint } from "../lib/upstream-errors.ts";
 
 let total = 0;
 let failed = 0;
@@ -160,6 +161,31 @@ check(
   parseModelIds({ data: [{ id: "a" }, { id: "a" }] })?.length === 1,
   "未去重"
 );
+
+// ============================================================
+// 1.6 上游错误翻译（NewAPI 系常见错误）
+// ============================================================
+check(
+  "错误翻译：无可用渠道",
+  upstreamErrorHint("503 No available compatible accounts").includes("上游渠道"),
+  upstreamErrorHint("503 No available compatible accounts")
+);
+check(
+  "错误翻译：模型不支持",
+  upstreamErrorHint("not supported model for image generation").includes("自定义模型"),
+  upstreamErrorHint("not supported model for image generation")
+);
+check(
+  "错误翻译：额度不足",
+  upstreamErrorHint("insufficient quota").includes("额度"),
+  upstreamErrorHint("insufficient quota")
+);
+check(
+  "错误翻译：Key 无效",
+  upstreamErrorHint("Invalid token (request id: x)").includes("API Key"),
+  upstreamErrorHint("Invalid token (request id: x)")
+);
+check("错误翻译：未识别时返回空串", upstreamErrorHint("something else") === "", "误判");
 
 // 版本化 id（很多中转只列 gpt-4o-mini-2024-07-18 这种）
 check(

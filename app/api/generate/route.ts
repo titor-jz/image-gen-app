@@ -5,6 +5,7 @@ import { errorResponse } from "@/lib/error-messages";
 import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
+import { upstreamErrorHint } from "@/lib/upstream-errors";
 
 // gpt-image-2 支持的尺寸
 // 2K 档(默认):适合快速出图
@@ -194,7 +195,11 @@ export async function POST(request: NextRequest) {
         errMsg = `上游服务返回错误 (${res.status})`;
         console.error("[generate] 上游 API 返回非 JSON 错误:", res.status, res.body);
       }
-      const { body, status } = errorResponse("GEN_UPSTREAM_FAILED", `${res.status} ${errMsg}`);
+      const hint = upstreamErrorHint(errMsg);
+      const { body, status } = errorResponse(
+        "GEN_UPSTREAM_FAILED",
+        `${res.status} ${errMsg}${hint ? ` · ${hint}` : ""}`
+      );
       return NextResponse.json({ error: body }, { status });
     }
 
