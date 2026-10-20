@@ -10,6 +10,7 @@ import {
   MAX_INPUT_CHARS,
 } from "@/lib/prompt-optimizer";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
+import { parseModelIds } from "@/lib/model-list";
 
 /**
  * POST /api/optimize - 用上游对话模型改写提示词（无状态透传）
@@ -77,10 +78,8 @@ async function listModelIds(
       timeoutMs: MODELS_PROBE_TIMEOUT_MS,
     });
     if (res.status < 200 || res.status >= 300) return null;
-    const data = JSON.parse(res.body);
-    const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : null;
-    if (!list) return null;
-    return list.map((m: { id?: unknown }) => (typeof m?.id === "string" ? m.id : "")).filter(Boolean);
+    // 兼容 OpenAI {data}/裸数组/Google {models}，id 可能是 name 或 "models/xxx"
+    return parseModelIds(JSON.parse(res.body));
   } catch {
     return null;
   }

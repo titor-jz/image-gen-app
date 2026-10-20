@@ -13,6 +13,7 @@ import {
 } from "../lib/prompt-optimizer.ts";
 import { resolveOptimizeEndpoint } from "../lib/optimize-endpoint.ts";
 import { MAX_PROMPT_CHARS } from "../lib/prompt-rules.ts";
+import { parseModelIds, parseModelEntries } from "../lib/model-list.ts";
 
 let total = 0;
 let failed = 0;
@@ -123,6 +124,42 @@ check("对话模型判定：常规模型为真", isChatModel("deepseek-v4-flash-
 check("对话模型判定：图像模型为假", !isChatModel("gpt-image-2") && !isChatModel("nano-banana") && !isChatModel("flux-pro"), "误判");
 check("对话模型判定：向量/语音为假", !isChatModel("text-embedding-3-large") && !isChatModel("whisper-1") && !isChatModel("tts-1"), "误判");
 check("对话模型判定：空串为假", !isChatModel(""), "误判");
+
+// ============================================================
+// 1.5 上游模型列表解析（同步模型名：兼容三种常见形状）
+// ============================================================
+check(
+  "模型列表：OpenAI 形状 {data:[{id}]}",
+  JSON.stringify(parseModelIds({ data: [{ id: "gpt-image-2" }] })) === '["gpt-image-2"]',
+  JSON.stringify(parseModelIds({ data: [{ id: "gpt-image-2" }] }))
+);
+check(
+  "模型列表：裸数组",
+  JSON.stringify(parseModelIds([{ id: "flux-pro" }])) === '["flux-pro"]',
+  JSON.stringify(parseModelIds([{ id: "flux-pro" }]))
+);
+check(
+  "模型列表：Google 形状 {models:[{name}]} 去掉 models/ 前缀",
+  JSON.stringify(parseModelIds({ models: [{ name: "models/imagen-3.0-generate-002" }] })) ===
+    '["imagen-3.0-generate-002"]',
+  JSON.stringify(parseModelIds({ models: [{ name: "models/imagen-3.0-generate-002" }] }))
+);
+check("模型列表：未知结构返回 null", parseModelIds({ foo: 1 }) === null);
+{
+  const empty = parseModelIds({ data: [] });
+  check("模型列表：空数组返回 []", Array.isArray(empty) && empty.length === 0, JSON.stringify(empty));
+}
+check(
+  "模型列表：保留端点能力声明",
+  parseModelEntries({ data: [{ id: "x", supported_endpoint_types: ["image-generation"] }] })?.[0]
+    .endpointTypes.includes("image-generation") === true,
+  "缺失"
+);
+check(
+  "模型列表：同名去重",
+  parseModelIds({ data: [{ id: "a" }, { id: "a" }] })?.length === 1,
+  "未去重"
+);
 
 // 版本化 id（很多中转只列 gpt-4o-mini-2024-07-18 这种）
 check(

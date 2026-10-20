@@ -514,7 +514,8 @@ export function SettingsDialog({
                 onChange={(e) => setEdit({ ...edit, customModelsText: e.target.value })}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                上游模型列表未返回、或识别不到的生图模型可在此手动补充（逗号分隔）
+                若节点未返回模型列表，主界面只会显示兜底的 GPT-Image2（可能不被该服务商支持）。
+                把服务商真正支持的生图模型 id 填在这里（逗号分隔），保存后即可在工具栏选中。
               </p>
             </div>
           </div>
