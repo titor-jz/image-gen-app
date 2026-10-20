@@ -89,8 +89,10 @@ export interface UseImageGenerationResult {
   results: GenerateResult[];
   /** 是否有任务进行中（由 tasks 派生，非独立 state） */
   loading: boolean;
-  /** 前置校验错误（无提示词/无 key）；生成阶段错误改为每任务条+toast */
+  /** 错误文案（前置校验 + 任务失败都写这里，保证移动端也能看到） */
   error: string | null;
+  /** 与 error 同步的错误码，用于区分"本地配置 / 网络 / 上游服务" */
+  errorCode: ErrorCode | null;
   /** 全部会话任务（进行中 + 终态淡出期内） */
   tasks: GenTask[];
   handleGenerate: () => Promise<void>;
@@ -213,6 +215,8 @@ export function useImageGeneration(
   const [tasks, setTasks] = useState<GenTask[]>([]);
   const [results, setResults] = useState<GenerateResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** 错误来源用的错误码（与 error 同步设置；null = 无错误） */
+  const [errorCode, setErrorCode] = useState<ErrorCode | null>(null);
 
   // 每个任务一个 AbortController，支持单张级取消
   const abortMapRef = useRef<Map<string, AbortController>>(new Map());
@@ -340,6 +344,7 @@ export function useImageGeneration(
           // 同时写入全局错误：移动端底部坞 / 桌面横幅会常驻显示，
           // 提示词被审核拒绝时还能附上具体改法（toast 几秒就消失）
           setError(msg);
+          setErrorCode(err instanceof ApiError ? err.code : "UNKNOWN");
           toast.error("生成失败", { description: msg });
         }
       } finally {
@@ -404,15 +409,18 @@ export function useImageGeneration(
     const apiKey = apiKeyRef.current;
     if (!prompt.trim()) {
       setError(getErrorMessage("REQ_MISSING_PROMPT"));
+      setErrorCode("REQ_MISSING_PROMPT");
       return;
     }
     if (!apiKey) {
       const msg = getErrorMessage("AUTH_MISSING_KEY");
       setError(msg);
+      setErrorCode("AUTH_MISSING_KEY");
       toast.error(msg);
       return;
     }
     setError(null);
+    setErrorCode(null);
 
     const referencedImages = resolveReferencedImages(prompt, referenceImages);
     const trimmedPrompt = prompt.trim();
@@ -692,6 +700,7 @@ export function useImageGeneration(
             markTerminal(task.id, { status: "failed", error: msg });
             // 同上：让失败原因常驻在主界面（审核/长度限制时附改法）
             setError(msg);
+            setErrorCode(err instanceof ApiError ? err.code : "UNKNOWN");
             toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
           }
         } finally {
@@ -794,6 +803,8 @@ export function useImageGeneration(
     results,
     loading,
     error,
+    /** 错误来源分类用（与 error 同步） */
+    errorCode,
     tasks,
     handleGenerate,
     cancelTask,

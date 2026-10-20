@@ -28,6 +28,7 @@ import { isCapacitor } from "@/lib/capacitor-env";
 import { SIZES, QUALITIES, type Quality, type RefQuality, type ReferenceImage } from "@/components/UnifiedInputCard";
 import type { ApiProfile } from "@/lib/api-config-context";
 import type { AspectRatio, GenerateResult, GenTask, HistoryRecord, ModelInfo } from "@/lib/types";
+import type { ErrorCode } from "@/lib/error-messages";
 
 /** 供 page.tsx 的安卓返回键统一接管（返回 true = 已消费） */
 export interface MobileNavApi {
@@ -71,6 +72,8 @@ export interface MobileHomeProps {
   onGenerate: () => void;
   /** 生成前置/请求错误（未配置 Key、上游失败等）：显示在主界面底部坞，移动端此前完全看不到 */
   error?: string | null;
+  /** 错误来源分类（本地配置/网络/上游服务） */
+  errorCode?: ErrorCode | null;
   /** 优化提示词（走节点上游的对话模型改写，结果回填输入框） */
   onOptimizePrompt: () => void;
   /** 改写请求进行中（按钮 loading） */
@@ -278,6 +281,7 @@ export function MobileHome(props: MobileHomeProps) {
               paramSummary={paramSummary}
               taskSummary={taskSummary}
               error={props.error}
+              errorCode={props.errorCode}
               onOpenParams={() => setParamOpen(true)}
               onShowResults={() => setView("results")}
               onGenerate={handleGenerate}

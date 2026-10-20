@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { PromptGuide } from "@/components/PromptGuide";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { suggestPromptFixes } from "@/lib/prompt-fix-suggestions";
+import { classifyErrorCode } from "@/lib/error-origin";
+import type { ErrorCode } from "@/lib/error-messages";
 import { validateAndCompress, toVerifiedDataUrl, type RefQuality } from "@/lib/reference-image";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
@@ -82,6 +84,7 @@ export function Composer({
   paramSummary,
   taskSummary,
   error,
+  errorCode,
   onOpenParams,
   onShowResults,
   onGenerate,
@@ -102,6 +105,8 @@ export function Composer({
   taskSummary: { running: number; failed: number; progress: number; resultCount: number };
   /** 生成前置/请求错误（未配置 Key、上游失败）：移动端此前没有展示位置 */
   error?: string | null;
+  /** 错误来源分类（本地配置/网络/上游服务） */
+  errorCode?: ErrorCode | null;
   onOpenParams: () => void;
   onShowResults: () => void;
   onGenerate: () => void;
@@ -168,6 +173,7 @@ export function Composer({
 
   // 提示词被上游拒绝（审核/长度）时，给出具体改法
   const promptFix = suggestPromptFixes(error ?? "");
+  const errorOrigin = classifyErrorCode(errorCode);
 
   const filteredMentions = referenceImages.filter((img) =>
     img.name.toLowerCase().includes(mentionQuery.toLowerCase())
@@ -440,6 +446,11 @@ export function Composer({
           {/* 错误提示：未配置 Key / 上游失败等，移动端此前没有任何展示位置 */}
           {error && (
             <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 text-[12px] leading-relaxed text-destructive animate-fade-in">
+              {errorOrigin && (
+                <p className="mb-1 text-[11px] font-medium">
+                  来源：{errorOrigin.label} · {errorOrigin.advice}
+                </p>
+              )}
               <p>{error}</p>
               {promptFix && (
                 <div className="mt-1.5 text-[11px] text-destructive/85">

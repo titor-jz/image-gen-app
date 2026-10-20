@@ -16,6 +16,7 @@ import { MAX_PROMPT_CHARS } from "../lib/prompt-rules.ts";
 import { parseModelIds, parseModelEntries } from "../lib/model-list.ts";
 import { upstreamErrorHint } from "../lib/upstream-errors.ts";
 import { suggestPromptFixes } from "../lib/prompt-fix-suggestions.ts";
+import { classifyErrorCode } from "../lib/error-origin.ts";
 
 let total = 0;
 let failed = 0;
@@ -213,6 +214,22 @@ check("错误翻译：未识别时返回空串", upstreamErrorHint("something el
 }
 check("限制建议：无关错误不给建议", suggestPromptFixes("No available compatible accounts") === null, "误报");
 check("限制建议：空串不给建议", suggestPromptFixes("") === null, "误报");
+
+// ============================================================
+// 1.8 错误来源分类（辨别"上游服务"还是"本地/网络/配置"）
+// ============================================================
+const originOf = (c: Parameters<typeof classifyErrorCode>[0]) => classifyErrorCode(c)?.origin ?? null;
+check("来源：缺 Key → 本地配置", originOf("AUTH_MISSING_KEY") === "config", String(originOf("AUTH_MISSING_KEY")));
+check("来源：上游地址非法 → 本地配置", originOf("REQ_INVALID_UPSTREAM_URL") === "config", String(originOf("REQ_INVALID_UPSTREAM_URL")));
+check("来源：没有对话模型 → 本地配置", originOf("OPT_NO_CHAT_MODEL") === "config", String(originOf("OPT_NO_CHAT_MODEL")));
+check("来源：提示词过长 → 输入/提示词", originOf("REQ_PROMPT_TOO_LONG") === "prompt", String(originOf("REQ_PROMPT_TOO_LONG")));
+check("来源：连不上上游 → 网络", originOf("GEN_UPSTREAM_NETWORK") === "network", String(originOf("GEN_UPSTREAM_NETWORK")));
+check("来源：上游 5xx/业务错误 → 上游服务", originOf("GEN_UPSTREAM_FAILED") === "upstream", String(originOf("GEN_UPSTREAM_FAILED")));
+check("来源：任务失败 → 上游服务", originOf("TASK_FAILED") === "upstream", String(originOf("TASK_FAILED")));
+check("来源：改写结果不可用 → 上游服务", originOf("OPT_BAD_RESPONSE") === "upstream", String(originOf("OPT_BAD_RESPONSE")));
+check("来源：用户取消 → 本地操作", originOf("CLIENT_CANCELLED") === "client", String(originOf("CLIENT_CANCELLED")));
+check("来源：UNKNOWN 不给来源", classifyErrorCode("UNKNOWN") === null, "误报");
+check("来源：null 不给来源", classifyErrorCode(null) === null, "误报");
 
 // 版本化 id（很多中转只列 gpt-4o-mini-2024-07-18 这种）
 check(

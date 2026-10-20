@@ -33,6 +33,7 @@ import { ResultGrid } from "@/components/ResultGrid";
 import { getSettings } from "@/lib/user-settings";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { suggestPromptFixes } from "@/lib/prompt-fix-suggestions";
+import { classifyErrorCode } from "@/lib/error-origin";
 import { useModels } from "@/hooks/useModels";
 import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
@@ -120,7 +121,7 @@ export default function Home() {
 
   // 4. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
-    results, loading, error, tasks,
+    results, loading, error, errorCode, tasks,
     handleGenerate, cancelTask, resumeTask, recoverInFlight, dismissTask, setResults,
   } = useImageGeneration({
     prompt,
@@ -143,8 +144,9 @@ export default function Home() {
     } : null,
   });
 
-  // 提示词被上游拒绝（审核/长度）时，给出具体改法
+  // 提示词被上游拒绝（审核/长度）时，给出具体改法；并标明错误来源（本地配置/网络/上游服务）
   const promptFix = suggestPromptFixes(error ?? "");
+  const errorOrigin = classifyErrorCode(errorCode);
 
   // 5. 启动时检测并恢复未完成的任务：凭持久化快照的 taskId 续轮询，
   //    不重新提交（重复提交 = 重复扣费）
@@ -264,6 +266,7 @@ export default function Home() {
         onDismissTask={dismissTask}
         onGenerate={handleGenerate}
         error={error}
+        errorCode={errorCode}
         onSelectHistory={handleSelectRecord}
         onNavApi={handleNavApi}
         onOptimizePrompt={handleOptimizePrompt}
@@ -339,6 +342,14 @@ export default function Home() {
           {/* 错误提示（提示词被上游拒绝时，附上具体改法） */}
           {error && (
             <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+              {errorOrigin && (
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium">
+                    来源：{errorOrigin.label}
+                  </span>
+                  <span className="text-xs text-destructive/80">{errorOrigin.advice}</span>
+                </div>
+              )}
               <div className="flex items-start gap-2">
                 <span className="font-medium shrink-0">提示：</span>
                 <span>{error}</span>
