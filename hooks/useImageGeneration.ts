@@ -337,6 +337,9 @@ export function useImageGeneration(
               ? err.message
               : getErrorMessage("UNKNOWN");
           markTerminal(id, { status: "failed", error: msg });
+          // 同时写入全局错误：移动端底部坞 / 桌面横幅会常驻显示，
+          // 提示词被审核拒绝时还能附上具体改法（toast 几秒就消失）
+          setError(msg);
           toast.error("生成失败", { description: msg });
         }
       } finally {
@@ -687,6 +690,8 @@ export function useImageGeneration(
                 ? err.message
                 : getErrorMessage("UNKNOWN");
             markTerminal(task.id, { status: "failed", error: msg });
+            // 同上：让失败原因常驻在主界面（审核/长度限制时附改法）
+            setError(msg);
             toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
           }
         } finally {

@@ -15,6 +15,7 @@ import { resolveOptimizeEndpoint } from "../lib/optimize-endpoint.ts";
 import { MAX_PROMPT_CHARS } from "../lib/prompt-rules.ts";
 import { parseModelIds, parseModelEntries } from "../lib/model-list.ts";
 import { upstreamErrorHint } from "../lib/upstream-errors.ts";
+import { suggestPromptFixes } from "../lib/prompt-fix-suggestions.ts";
 
 let total = 0;
 let failed = 0;
@@ -186,6 +187,32 @@ check(
   upstreamErrorHint("Invalid token (request id: x)")
 );
 check("错误翻译：未识别时返回空串", upstreamErrorHint("something else") === "", "误判");
+
+// ============================================================
+// 1.7 提示词限制的修改建议
+// ============================================================
+{
+  const a = suggestPromptFixes("Your request was rejected as a result of our safety system.");
+  check("限制建议：英文审核拒绝 → policy", a?.kind === "policy" && a.tips.length >= 4, JSON.stringify(a?.kind));
+}
+{
+  const a = suggestPromptFixes("400 content_policy_violation");
+  check("限制建议：content_policy → policy", a?.kind === "policy", JSON.stringify(a?.kind));
+}
+{
+  const a = suggestPromptFixes("该提示词未通过内容审核");
+  check("限制建议：中文审核 → policy", a?.kind === "policy", JSON.stringify(a?.kind));
+}
+{
+  const a = suggestPromptFixes("prompt is too long: maximum context length is 1000 tokens");
+  check("限制建议：长度超限 → length", a?.kind === "length", JSON.stringify(a?.kind));
+}
+{
+  const a = suggestPromptFixes("提示词过长，超出限制");
+  check("限制建议：中文超长 → length", a?.kind === "length", JSON.stringify(a?.kind));
+}
+check("限制建议：无关错误不给建议", suggestPromptFixes("No available compatible accounts") === null, "误报");
+check("限制建议：空串不给建议", suggestPromptFixes("") === null, "误报");
 
 // 版本化 id（很多中转只列 gpt-4o-mini-2024-07-18 这种）
 check(

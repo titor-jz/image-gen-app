@@ -32,6 +32,7 @@ import {
 import { ResultGrid } from "@/components/ResultGrid";
 import { getSettings } from "@/lib/user-settings";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
+import { suggestPromptFixes } from "@/lib/prompt-fix-suggestions";
 import { useModels } from "@/hooks/useModels";
 import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
@@ -141,6 +142,9 @@ export default function Home() {
       proxyUrl: nodeB.proxyUrl,
     } : null,
   });
+
+  // 提示词被上游拒绝（审核/长度）时，给出具体改法
+  const promptFix = suggestPromptFixes(error ?? "");
 
   // 5. 启动时检测并恢复未完成的任务：凭持久化快照的 taskId 续轮询，
   //    不重新提交（重复提交 = 重复扣费）
@@ -332,11 +336,23 @@ export default function Home() {
 
         {/* 错误提示 + 输出图库：使用更宽容器，图片多时不会挤在窄栏里 */}
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] space-y-6">
-          {/* 错误提示 */}
+          {/* 错误提示（提示词被上游拒绝时，附上具体改法） */}
           {error && (
-            <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-start gap-2">
-              <span className="font-medium shrink-0">提示：</span>
-              <span>{error}</span>
+            <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+              <div className="flex items-start gap-2">
+                <span className="font-medium shrink-0">提示：</span>
+                <span>{error}</span>
+              </div>
+              {promptFix && (
+                <div className="mt-2 pl-6 text-xs text-destructive/85">
+                  <p className="font-medium">{promptFix.title}，可以这样改：</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {promptFix.tips.map((tip) => (
+                      <li key={tip}>· {tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

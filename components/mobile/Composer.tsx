@@ -16,6 +16,7 @@ import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2,
 import { Button } from "@/components/ui/button";
 import { PromptGuide } from "@/components/PromptGuide";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
+import { suggestPromptFixes } from "@/lib/prompt-fix-suggestions";
 import { validateAndCompress, toVerifiedDataUrl, type RefQuality } from "@/lib/reference-image";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
@@ -164,6 +165,9 @@ export function Composer({
   );
 
   const isFull = referenceImages.length >= MAX_COUNT;
+
+  // 提示词被上游拒绝（审核/长度）时，给出具体改法
+  const promptFix = suggestPromptFixes(error ?? "");
 
   const filteredMentions = referenceImages.filter((img) =>
     img.name.toLowerCase().includes(mentionQuery.toLowerCase())
@@ -436,7 +440,17 @@ export function Composer({
           {/* 错误提示：未配置 Key / 上游失败等，移动端此前没有任何展示位置 */}
           {error && (
             <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 text-[12px] leading-relaxed text-destructive animate-fade-in">
-              {error}
+              <p>{error}</p>
+              {promptFix && (
+                <div className="mt-1.5 text-[11px] text-destructive/85">
+                  <p className="font-medium">{promptFix.title}：</p>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {promptFix.tips.map((tip) => (
+                      <li key={tip}>· {tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
