@@ -371,6 +371,7 @@ export function SettingsDialog({
             </select>
             <p className="text-xs text-muted-foreground">
               「优化提示词」需要一个支持对话模型的节点；当前节点只做生图时，把它指向另一个通用节点即可。
+              <span className="text-foreground/70">注意：生图仍走上面的「使用中」节点，这里选的节点不需要去点「启用」。</span>
             </p>
 
             <label htmlFor="settings-optimize-model" className="text-sm text-muted-foreground block pt-1">

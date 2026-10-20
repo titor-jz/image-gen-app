@@ -69,6 +69,8 @@ export interface MobileHomeProps {
   onResumeTask: (id: string) => void;
   onDismissTask: (id: string) => void;
   onGenerate: () => void;
+  /** 生成前置/请求错误（未配置 Key、上游失败等）：显示在主界面底部坞，移动端此前完全看不到 */
+  error?: string | null;
   /** 优化提示词（走节点上游的对话模型改写，结果回填输入框） */
   onOptimizePrompt: () => void;
   /** 改写请求进行中（按钮 loading） */
@@ -139,15 +141,35 @@ export function MobileHome(props: MobileHomeProps) {
     return parts.join(" · ");
   }, [props.models, props.selectedModel, props.selectedSize, props.selectedQuality, props.selectedN, props.compareMode]);
 
-  const runningCount = useMemo(
-    () => props.tasks.filter((t) => t.status === "submitting" || t.status === "polling").length,
-    [props.tasks]
-  );
+  // 底部坞的状态块：进行中显示进度，结束后显示结果/失败入口。
+  // 不再在点「生成」时自动跳结果页——进度和结果入口都在主界面（用户反馈）。
+  const taskSummary = useMemo(() => {
+    const running = props.tasks.filter(
+      (t) => t.status === "submitting" || t.status === "polling"
+    );
+    const failed = props.tasks.filter(
+      (t) => t.status === "failed" || t.status === "timeout"
+    ).length;
+    const progress = running.length
+      ? running.reduce((sum, t) => sum + (t.progress || 0), 0) / running.length
+      : 0;
+    return {
+      running: running.length,
+      failed,
+      progress,
+      resultCount: props.results.length,
+    };
+  }, [props.tasks, props.results.length]);
 
   const handleGenerate = useCallback(() => {
+    // 留在输入态：进度条显示在底部坞，结果入口也在主界面
     props.onGenerate();
-    setView("results");
   }, [props]);
+
+  // 生成结果落地后刷新"最近生成"轨，让新图直接出现在主界面
+  useEffect(() => {
+    if (props.results.length > 0) void load();
+  }, [props.results.length, load]);
 
   const handleSelectHistory = useCallback(
     (record: HistoryRecord) => {
@@ -254,7 +276,8 @@ export function MobileHome(props: MobileHomeProps) {
               onReferenceImagesChange={props.onReferenceImagesChange}
               refQuality={props.refQuality}
               paramSummary={paramSummary}
-              runningCount={runningCount}
+              taskSummary={taskSummary}
+              error={props.error}
               onOpenParams={() => setParamOpen(true)}
               onShowResults={() => setView("results")}
               onGenerate={handleGenerate}

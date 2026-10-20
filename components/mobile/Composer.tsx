@@ -12,7 +12,7 @@
  */
 
 import { useState, useRef, useCallback } from "react";
-import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2 } from "lucide-react";
+import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2, XCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PromptGuide } from "@/components/PromptGuide";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
@@ -79,7 +79,8 @@ export function Composer({
   referenceImages, onReferenceImagesChange,
   refQuality,
   paramSummary,
-  runningCount,
+  taskSummary,
+  error,
   onOpenParams,
   onShowResults,
   onGenerate,
@@ -96,8 +97,10 @@ export function Composer({
   refQuality: RefQuality;
   /** 参数摘要文案（如 "GPT-Image2 · 自动 · 1K · 1张"） */
   paramSummary: string;
-  /** 进行中任务数（>0 时显示迷你进度条） */
-  runningCount: number;
+  /** 任务状态摘要：底部坞用它显示进度条 / 失败 / 结果入口 */
+  taskSummary: { running: number; failed: number; progress: number; resultCount: number };
+  /** 生成前置/请求错误（未配置 Key、上游失败）：移动端此前没有展示位置 */
+  error?: string | null;
   onOpenParams: () => void;
   onShowResults: () => void;
   onGenerate: () => void;
@@ -430,6 +433,13 @@ export function Composer({
       {/* 底部操作坞（悬浮，非贴边） */}
       <div className="shrink-0 px-4 pt-2 pb-[max(0.9rem,env(safe-area-inset-bottom))]">
         <div className="m-dock p-3 space-y-2.5 animate-fade-up [animation-delay:120ms]">
+          {/* 错误提示：未配置 Key / 上游失败等，移动端此前没有任何展示位置 */}
+          {error && (
+            <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-2 text-[12px] leading-relaxed text-destructive animate-fade-in">
+              {error}
+            </div>
+          )}
+
           {/* 参数摘要 → ParamSheet */}
           <button
             type="button"
@@ -441,17 +451,49 @@ export function Composer({
             <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
 
-          {/* 迷你进度：进行中任务一键回结果态 */}
-          {runningCount > 0 && (
+          {/* 生成状态：进度条留在主界面，不再自动跳到结果页；结束后给结果/失败入口 */}
+          {taskSummary.running > 0 ? (
+            <button
+              type="button"
+              onClick={onShowResults}
+              className="w-full rounded-xl bg-primary/10 px-3 py-2 text-left press animate-fade-in"
+              aria-label="查看生成进度"
+            >
+              <div className="flex items-center justify-between gap-2 text-[13px] text-primary">
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  正在生成 {taskSummary.running} 张…
+                </span>
+                <span className="tabular-nums text-[12px]">
+                  {Math.round(taskSummary.progress * 100)}%
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full bg-primary/15 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${Math.max(4, Math.round(taskSummary.progress * 100))}%` }}
+                />
+              </div>
+            </button>
+          ) : taskSummary.failed > 0 ? (
+            <button
+              type="button"
+              onClick={onShowResults}
+              className="w-full h-10 flex items-center justify-center gap-2 rounded-xl bg-destructive/10 text-destructive text-sm press animate-fade-in"
+            >
+              <XCircle className="w-4 h-4" />
+              {taskSummary.failed} 张生成失败 · 查看原因
+            </button>
+          ) : taskSummary.resultCount > 0 ? (
             <button
               type="button"
               onClick={onShowResults}
               className="w-full h-10 flex items-center justify-center gap-2 rounded-xl bg-primary/10 text-primary text-sm press animate-fade-in"
             >
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {runningCount} 个任务进行中 · 查看
+              <CheckCircle2 className="w-4 h-4" />
+              已生成 {taskSummary.resultCount} 张 · 查看
             </button>
-          )}
+          ) : null}
 
           {/* 生成（唯一浓烈时刻） */}
           <Button

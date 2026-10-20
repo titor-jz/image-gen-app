@@ -260,6 +260,7 @@ export default function Home() {
         onResumeTask={resumeTask}
         onDismissTask={dismissTask}
         onGenerate={handleGenerate}
+        error={error}
         onSelectHistory={handleSelectRecord}
         onNavApi={handleNavApi}
         onOptimizePrompt={handleOptimizePrompt}
