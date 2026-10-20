@@ -88,16 +88,15 @@ export default function Home() {
   }, []);
 
   // 2.5 API 节点配置（多套配置,当前激活项用于生成;对比模式可选第二节点）
-  const { profiles, activeId, optimizeId } = useApiConfig();
+  const { profiles, activeId, optimizeConfig } = useApiConfig();
   const activeNode = profiles.find((p) => p.id === activeId) ?? null;
   const nodeB = compareMode && nodeBId
     ? profiles.find((p) => p.id === nodeBId) ?? null
     : null;
 
-  // 2.6 提示词优化：走节点上游的对话模型改写（/api/optimize 透传，失败时保留原文）
-  //     图像专用中转常常没有对话模型，所以这里按「设置里的优化节点」独立取一套 Key；
-  //     画幅与是否带参考图一并交给模型，让改写贴合当前这次生成
-  const optimizeEndpoint = resolveOptimizeEndpoint(profiles, optimizeId, activeId);
+  // 2.6 提示词优化：走独立配置的对话接口（/api/optimize 透传，失败时保留原文）
+  //     没配置时才回落到当前节点；画幅与是否带参考图一并交给模型
+  const optimizeEndpoint = resolveOptimizeEndpoint(optimizeConfig, profiles, activeId);
   const { optimize: handleOptimizePrompt, loading: optimizeLoading } = usePromptOptimize({
     prompt,
     onPromptChange: setPrompt,

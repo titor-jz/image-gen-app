@@ -1,9 +1,9 @@
 /**
- * 提示词优化节点的解析（纯函数，可直测）
+ * 提示词优化接口的解析（纯函数，可直测）
  *
- * 背景：图像专用中转（如只提供 /images/* 的 NewAPI 系）往往没有对话模型，
- * 而节点列表里可能有另一个通用中转。用户在设置里指定"提示词优化节点"后，
- * 改写请求走该节点，生图仍走当前激活节点——两套 Key 互不影响。
+ * 设计：优化接口是**独立配置**——用户自己填 Base URL / Key / 模型并保存，
+ * 不从生图节点里挑（图像专用中转往往没有对话模型，混在一起容易选错）。
+ * 只有完全没配置时，才回落到当前生图节点（单节点通用中转的常见情况）。
  */
 
 export interface NodeLike {
@@ -12,8 +12,14 @@ export interface NodeLike {
   baseUrl: string;
   apiKey: string;
   proxyUrl: string;
-  /** 该节点用于「优化提示词」的对话模型（空 = 由服务端自动挑） */
-  optimizeModel?: string;
+}
+
+/** 与 lib/api-config-context.tsx 的 OptimizeConfig 结构一致（此处不 import，避免纯函数被客户端模块牵连） */
+export interface OptimizeConfigLike {
+  baseUrl: string;
+  apiKey: string;
+  proxyUrl: string;
+  model: string;
 }
 
 export interface OptimizeEndpoint {
@@ -22,27 +28,37 @@ export interface OptimizeEndpoint {
   proxyUrl: string;
   nodeId: string;
   nodeName: string;
-  /** 指定的对话模型（空串 = 自动挑） */
+  /** 指定的对话模型（空串 = 服务端自动挑） */
   optimizeModel: string;
 }
 
 /**
- * 解析实际使用哪个节点：
- *  1. 用户指定的优化节点（仍存在时）；
+ * 解析实际使用的优化接口：
+ *  1. 独立配置填了 Base URL **且** Key → 用它（只填一半视为未配置）；
  *  2. 否则回落到当前激活节点；
- *  3. 都没有则取列表第一个；
- *  4. 列表为空 → null（调用方按未配置处理）。
+ *  3. 都没有 → 列表第一个；
+ *  4. 完全没节点 → null（调用方按未配置处理）。
  */
 export function resolveOptimizeEndpoint(
+  config: OptimizeConfigLike,
   profiles: NodeLike[],
-  preferredId: string | undefined,
   activeId: string
 ): OptimizeEndpoint | null {
-  const node =
-    (preferredId ? profiles.find((p) => p.id === preferredId) : undefined) ??
-    profiles.find((p) => p.id === activeId) ??
-    profiles[0];
+  const baseUrl = config.baseUrl.trim();
+  const apiKey = config.apiKey.trim();
 
+  if (baseUrl && apiKey) {
+    return {
+      apiKey,
+      baseUrl,
+      proxyUrl: config.proxyUrl.trim(),
+      nodeId: "custom",
+      nodeName: "自定义优化接口",
+      optimizeModel: config.model.trim(),
+    };
+  }
+
+  const node = profiles.find((p) => p.id === activeId) ?? profiles[0];
   if (!node) return null;
 
   return {
@@ -51,6 +67,6 @@ export function resolveOptimizeEndpoint(
     proxyUrl: node.proxyUrl,
     nodeId: node.id,
     nodeName: node.name,
-    optimizeModel: node.optimizeModel ?? "",
+    optimizeModel: "",
   };
 }

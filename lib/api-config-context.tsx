@@ -36,8 +36,10 @@ const LEGACY_BASE_URL = "image-gen-base-url";
 const LEGACY_PROXY_URL = "image-gen-proxy-url";
 const PROFILES_STORAGE_KEY = "image-gen-api-profiles";
 const ACTIVE_STORAGE_KEY = "image-gen-api-active";
-/** 提示词优化使用的节点 id（空 = 跟随当前激活节点；图像专用中转可另指一个对话节点） */
-const OPTIMIZE_STORAGE_KEY = "image-gen-optimize-node";
+/** 提示词优化接口（独立于生图节点：自己填 Base URL / Key / 模型） */
+const OPTIMIZE_CONFIG_KEY = "image-gen-optimize-config";
+/** 旧版：优化走某个节点 id（已废弃，仅用于一次性迁移） */
+const LEGACY_OPTIMIZE_NODE_KEY = "image-gen-optimize-node";
 
 // 自定义事件名：同标签页内多组件间通知（'storage' 事件只在跨标签页触发）
 const CHANGE_EVENT = "image-gen-api-config-change";
@@ -56,9 +58,26 @@ export interface ApiProfile {
   proxyUrl: string;
   /** 手动补充的模型 id（上游 /v1/models 未返回、或端点类型识别不到的模型） */
   customModels?: string[];
-  /** 「优化提示词」用的对话模型（留空 = 由 /api/optimize 自动挑） */
+  /** @deprecated 旧版把优化模型存在节点上；现在改存 OptimizeConfig.model（仅迁移时读取） */
   optimizeModel?: string;
 }
+
+/** 提示词优化接口：独立于生图节点，由用户自己填写并保存 */
+export interface OptimizeConfig {
+  /** Base URL（含 /v1）；留空则回落到当前激活节点 */
+  baseUrl: string;
+  apiKey: string;
+  proxyUrl: string;
+  /** 钉死的对话模型（留空 = 服务端自动挑） */
+  model: string;
+}
+
+export const EMPTY_OPTIMIZE_CONFIG: OptimizeConfig = {
+  baseUrl: "",
+  apiKey: "",
+  proxyUrl: "",
+  model: "",
+};
 
 export interface ApiConfig {
   /** 当前激活的 profile（无任何配置时为 null） */
@@ -73,10 +92,10 @@ export interface ApiConfig {
   removeProfile: (id: string) => void;
   /** 切换当前激活的 profile */
   setActiveId: (id: string) => void;
-  /** 提示词优化使用的节点 id（空 = 跟随当前激活节点） */
-  optimizeId: string;
-  /** 切换提示词优化节点（传空串 = 跟随当前节点） */
-  setOptimizeId: (id: string) => void;
+  /** 提示词优化接口（独立配置；未填写时回落到当前激活节点） */
+  optimizeConfig: OptimizeConfig;
+  /** 保存优化接口配置 */
+  saveOptimizeConfig: (config: OptimizeConfig) => void;
   // ---- 兼容字段：下游 hooks 继续按单配置消费 ----
   /** 当前激活 profile 的 apiKey（等价 activeProfile?.apiKey） */
   apiKey: string;
@@ -176,10 +195,48 @@ function loadActiveId(profiles: ApiProfile[]): string {
   return profiles[0]?.id ?? "";
 }
 
-/** 优化节点：存的 id 已不存在（节点被删）时退回"跟随当前节点" */
-function loadOptimizeId(profiles: ApiProfile[]): string {
-  const id = readStorage(OPTIMIZE_STORAGE_KEY);
-  return id && profiles.some((p) => p.id === id) ? id : "";
+/** 优化接口配置：存过就原样用，坏数据按"未配置"处理 */
+function parseOptimizeConfig(raw: string): OptimizeConfig | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== "object") return null;
+    return {
+      baseUrl: typeof v.baseUrl === "string" ? v.baseUrl : "",
+      apiKey: typeof v.apiKey === "string" ? v.apiKey : "",
+      proxyUrl: typeof v.proxyUrl === "string" ? v.proxyUrl : "",
+      model: typeof v.model === "string" ? v.model : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读取优化接口配置。
+ * 旧版本（优化走某个节点 id）做一次性迁移：把该节点的地址/Key/模型搬进独立配置，再删除旧键。
+ */
+function loadOptimizeConfig(profiles: ApiProfile[]): OptimizeConfig {
+  const saved = parseOptimizeConfig(readStorage(OPTIMIZE_CONFIG_KEY));
+  if (saved) return saved;
+
+  const legacyNodeId = readStorage(LEGACY_OPTIMIZE_NODE_KEY);
+  if (legacyNodeId) {
+    const node = profiles.find((p) => p.id === legacyNodeId);
+    if (node) {
+      const migrated: OptimizeConfig = {
+        baseUrl: node.baseUrl,
+        apiKey: node.apiKey,
+        proxyUrl: node.proxyUrl,
+        model: node.optimizeModel ?? "",
+      };
+      writeStorage(OPTIMIZE_CONFIG_KEY, JSON.stringify(migrated));
+      writeStorage(LEGACY_OPTIMIZE_NODE_KEY, "");
+      return migrated;
+    }
+    writeStorage(LEGACY_OPTIMIZE_NODE_KEY, "");
+  }
+  return EMPTY_OPTIMIZE_CONFIG;
 }
 
 /** 序列化 + 广播（写入后所有消费方同步刷新） */
@@ -195,10 +252,14 @@ function persist(profiles: ApiProfile[], activeId: string): void {
 
 export function ApiConfigProvider({ children }: { children: ReactNode }) {
   // 初始值为空：服务端与客户端首帧一致（hydration 安全），挂载后从 localStorage 同步
-  const [state, setState] = useState<{ profiles: ApiProfile[]; activeId: string; optimizeId: string }>({
+  const [state, setState] = useState<{
+    profiles: ApiProfile[];
+    activeId: string;
+    optimizeConfig: OptimizeConfig;
+  }>({
     profiles: [],
     activeId: "",
-    optimizeId: "",
+    optimizeConfig: EMPTY_OPTIMIZE_CONFIG,
   });
 
   useEffect(() => {
@@ -207,7 +268,7 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
       setState({
         profiles,
         activeId: loadActiveId(profiles),
-        optimizeId: loadOptimizeId(profiles),
+        optimizeConfig: loadOptimizeConfig(profiles),
       });
     };
 
@@ -216,7 +277,8 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
       if (
         e.key === PROFILES_STORAGE_KEY ||
         e.key === ACTIVE_STORAGE_KEY ||
-        e.key === OPTIMIZE_STORAGE_KEY ||
+        e.key === OPTIMIZE_CONFIG_KEY ||
+        e.key === LEGACY_OPTIMIZE_NODE_KEY ||
         e.key === LEGACY_API_KEY ||
         e.key === LEGACY_BASE_URL ||
         e.key === LEGACY_PROXY_URL
@@ -276,8 +338,6 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
     const activeId = loadActiveId(profiles);
     // 删除激活项则顺延到第一个；删空则清空激活
     const nextActive = activeId === id ? (next[0]?.id ?? "") : activeId;
-    // 删掉的是"提示词优化节点"时一并清除，避免留下悬空指针
-    if (readStorage(OPTIMIZE_STORAGE_KEY) === id) writeStorage(OPTIMIZE_STORAGE_KEY, "");
     persist(next, nextActive);
   }, []);
 
@@ -287,11 +347,17 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
     persist(profiles, id);
   }, []);
 
-  const setOptimizeId = useCallback((id: string) => {
-    const profiles = loadProfiles();
-    // 只接受"跟随当前"(空串) 或确实存在的节点
-    if (id && !profiles.some((p) => p.id === id)) return;
-    writeStorage(OPTIMIZE_STORAGE_KEY, id);
+  const saveOptimizeConfig = useCallback((config: OptimizeConfig) => {
+    const normalized: OptimizeConfig = {
+      baseUrl: config.baseUrl.trim(),
+      apiKey: config.apiKey.trim(),
+      proxyUrl: config.proxyUrl.trim(),
+      model: config.model.trim(),
+    };
+    // 全空视为"未配置"，直接删键（回落到当前节点）
+    const isEmpty =
+      !normalized.baseUrl && !normalized.apiKey && !normalized.proxyUrl && !normalized.model;
+    writeStorage(OPTIMIZE_CONFIG_KEY, isEmpty ? "" : JSON.stringify(normalized));
     window.dispatchEvent(new Event(CHANGE_EVENT));
   }, []);
 
@@ -308,8 +374,8 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
       saveProfile,
       removeProfile,
       setActiveId,
-      optimizeId: state.optimizeId,
-      setOptimizeId,
+      optimizeConfig: state.optimizeConfig,
+      saveOptimizeConfig,
       // 兼容字段（下游 hooks 按单配置消费，语义不变）
       apiKey: activeProfile?.apiKey ?? "",
       baseUrl: activeProfile?.baseUrl ?? "",
@@ -319,11 +385,11 @@ export function ApiConfigProvider({ children }: { children: ReactNode }) {
       activeProfile,
       state.profiles,
       state.activeId,
-      state.optimizeId,
+      state.optimizeConfig,
       saveProfile,
       removeProfile,
       setActiveId,
-      setOptimizeId,
+      saveOptimizeConfig,
     ]
   );
 

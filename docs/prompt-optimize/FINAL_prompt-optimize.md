@@ -16,8 +16,8 @@
 ```
 
 - **不落任何数据**：Key 与 BaseURL 沿用 `resolveUpstream`（BYO 请求头 / 服务端 env，同源不变式 + SSRF 基线）。
-- **独立节点**：设置里「提示词优化节点」（`image-gen-optimize-node`，空 = 跟随当前节点）。图像专用中转没有对话模型时，另指一个通用节点；生图仍走当前节点，两套 Key 互不影响。
-- **优化模型可钉死**：设置里「提示词优化」区块的模型输入（`ApiProfile.optimizeModel`），**下拉选项来自该节点的 `/api/models?type=chat`**（只列非图像/向量/语音模型），同时允许手填——中转的模型名不常见（如 `deepseek-v4-flash-0731`）时务必填写，自动挑只能按名单/排除法猜，猜错会挑到无关模型（实测某节点列表首个 `Agents-A1` 会超时）。输入框失焦或回车即保存。
+- **独立接口配置**：设置里「提示词优化接口」自己填 Base URL / Key / 模型 / 代理（`image-gen-optimize-config`），**不占用生图节点列表**、也不需要「启用」；生图节点保持不动。两者都没填时才回落到当前生图节点。旧版「优化节点」配置会在首次加载时自动迁移成该独立配置并删除旧键。
+- **优化模型可钉死**：同一表单里的「模型」（`OptimizeConfig.model`），下拉选项来自该接口的 `/api/models?type=chat`（只列非图像/向量/语音模型），也允许手填——中转的模型名不常见（如 `deepseek-v4-flash-0731`）时务必填写，自动挑只能按名单/排除法猜，猜错会挑到无关模型（实测某节点列表首个 `Agents-A1` 会超时）。
 - **模型挑选**：客户端/节点指定 > `OPT_MODEL` > `/models` 优先名单（gpt-4o-mini / gpt-4.1-mini / deepseek-chat…）→ 第一个非图像/非向量/非语音模型；列表为空或全不可用（不少中转对普通 token 隐藏 `/models`）时，按常见对话模型逐个探测（400/404/422 才继续，401/403 立即终止）。
 - **只发 `model` + `messages`**：不同厂商对 `max_tokens` / `temperature` 的兼容性不一，少发一个参数少一类失败。
 - **超时与预算**：单次改写 `OPT_TIMEOUT_MS`（默认 45s，推理系模型延迟波动大）；整请求 `OPT_TOTAL_BUDGET_MS`（默认 50s，须低于平台 60s）；`/models` 探测 8s；请求体 `OPT_MAX_BODY_MB`（默认 1MB）。失败返回稳定 `OPT_*` 错误码。
@@ -25,7 +25,7 @@
 ## 交互（对齐行业范式）
 
 1. **改写可见**：结果直接回填输入框，toast 提供「撤销」（目标始终是优化前原文）。
-2. **fail-open**：AI 改写失败 → **不改动原文**，toast 说明原因（`OPT_NO_CHAT_MODEL` 时提示去设置里换优化节点）。
+2. **fail-open**：AI 改写失败 → **不改动原文**，toast 说明原因（`OPT_NO_CHAT_MODEL` 时提示去设置里配置优化接口）。
 3. **可选兜底**：失败 toast 里提供「用本地规则」按钮——是否退回模板输出由用户决定，**不静默降级**到已知不贴合的产物。
 4. **连点换一版**：以原文为基底重写，并把上一版作为 `avoid` 交给模型避免雷同。
 5. **竞态保护**：请求期间用户改了文本 → 丢弃本次结果，不覆盖刚敲的字。
@@ -49,12 +49,12 @@
 ## 交付文件
 
 - `lib/prompt-optimizer.ts`：指令构造、输出清洗、模型挑选（纯函数；`isChatModel` 同时供模型列表接口复用）。
-- `lib/optimize-endpoint.ts`：优化节点解析（纯函数，含该节点钉死的优化模型）。
+- `lib/optimize-endpoint.ts`：优化接口解析（纯函数：独立配置优先，未配置回落当前节点）。
 - `app/api/optimize/route.ts`：透传路由 + 模型探测 + 错误码映射。
 - `app/api/models/route.ts`：新增 `?type=chat`，给「优化模型」下拉返回对话模型（失败返回空列表，不回退假模型）。
 - `hooks/usePromptOptimize.ts`：异步交互（loading、撤销、竞态、本地兜底入口）。
 - `lib/api-config-context.tsx`：新增 `optimizeId` / `setOptimizeId`（含跨标签页同步、删节点时清理悬空指针）。
-- `components/SettingsDialog.tsx`：新增「提示词优化」区块（优化节点下拉 + 优化模型下拉/手填，选项取自该节点 `/models`）。
+- `components/SettingsDialog.tsx`：新增「提示词优化接口」独立表单（Base URL / Key / 模型 / 代理 + 保存；模型下拉取自该接口 `/models?type=chat`）。
 - `components/UnifiedInputCard.tsx` / `components/mobile/Composer.tsx` / `MobileHome.tsx` / `app/page.tsx`：按钮 loading 态与接线。
 - `lib/http-client.ts`：`httpJsonPost` 支持按场景覆盖超时。
 - `lib/error-messages.ts`：新增 `OPT_NO_CHAT_MODEL` / `OPT_UPSTREAM_FAILED` / `OPT_BAD_RESPONSE`。
@@ -70,7 +70,7 @@
 
 ## 验证
 
-- `node scripts/check-prompt-optimizer.mts` → **58/58**：清洗（围栏/中英前缀/引号/换行/超长截断）、模型挑选（偏好顺序、厂商前缀、版本化 id、图像/TTS 排除、全图像时返回 null）、对话模型判定（`isChatModel`）、改写计划（首次/换版/用户改动/原文丢失）、画幅白名单、指令（图生图/画幅/换版/超长截断）、优化节点解析（指定/跟随/节点被删/节点列表为空/模型随节点）。
+- `node scripts/check-prompt-optimizer.mts` → **59/59**：清洗（围栏/中英前缀/引号/换行/超长截断）、模型挑选（偏好顺序、厂商前缀、版本化 id、图像/TTS 排除、全图像时返回 null）、对话模型判定（`isChatModel`）、改写计划（首次/换版/用户改动/原文丢失）、画幅白名单、指令（图生图/画幅/换版/超长截断）、优化接口解析（独立配置优先/只填一半视为未配置/回落当前节点/无节点时 null）。
 - `node scripts/check-prompt-enhancer.mts` → **46/46**（本地兜底引擎回归）。
 - `npx tsc --noEmit` 0 错误；`npm run lint` 0 错误（6 条既有 `<img>` 警告）。
 - 路由端到端（本地 mock 上游，`REVIEW.md` 有完整处置记录）：正常改写 / `/models` 为空时探测候选 / 对话端点全 404 → `OPT_NO_CHAT_MODEL` / 非 JSON 与空内容 → `OPT_BAD_RESPONSE` / 首个候选超时 → 自动换下一个成功 / 上游不可达 → `OPT_UPSTREAM_FAILED`，全部符合预期；模型自动跳过图像模型选中 `gpt-4o-mini`。

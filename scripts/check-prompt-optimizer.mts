@@ -229,38 +229,55 @@ check(
 }
 
 // ============================================================
-// 4. 优化节点解析（生图节点与优化节点可以不同）
+// 4. 优化接口解析（独立配置优先；未配置才回落当前节点）
 // ============================================================
 const NODES = [
   { id: "img", name: "图像中转", baseUrl: "https://img/v1", apiKey: "k-img", proxyUrl: "" },
-  { id: "chat", name: "通用中转", baseUrl: "https://chat/v1", apiKey: "k-chat", proxyUrl: "http://p:1", optimizeModel: "deepseek-v4-flash-0731" },
+  { id: "chat", name: "通用中转", baseUrl: "https://chat/v1", apiKey: "k-chat", proxyUrl: "http://p:1" },
 ];
 
+const EMPTY_CFG = { baseUrl: "", apiKey: "", proxyUrl: "", model: "" };
+const CUSTOM_CFG = {
+  baseUrl: "https://custom/v1",
+  apiKey: "k-custom",
+  proxyUrl: "http://p:9",
+  model: "deepseek-v4-flash-0731",
+};
+
 {
-  const ep = resolveOptimizeEndpoint(NODES, "chat", "img");
-  check("指定了优化节点就用它", ep?.apiKey === "k-chat" && ep?.baseUrl === "https://chat/v1", JSON.stringify(ep));
-  check("代理地址一并取自优化节点", ep?.proxyUrl === "http://p:1", String(ep?.proxyUrl));
-  check("带上节点信息便于提示", ep?.nodeName === "通用中转", String(ep?.nodeName));
-  check("带上节点钉死的优化模型", ep?.optimizeModel === "deepseek-v4-flash-0731", String(ep?.optimizeModel));
+  const ep = resolveOptimizeEndpoint(CUSTOM_CFG, NODES, "img");
+  check("独立配置优先于任何生图节点", ep?.apiKey === "k-custom" && ep?.baseUrl === "https://custom/v1", JSON.stringify(ep));
+  check("代理取自独立配置", ep?.proxyUrl === "http://p:9", String(ep?.proxyUrl));
+  check("模型取自独立配置", ep?.optimizeModel === "deepseek-v4-flash-0731", String(ep?.optimizeModel));
 }
 
 {
-  const ep = resolveOptimizeEndpoint(NODES, "", "img");
-  check("未指定时跟随当前激活节点", ep?.apiKey === "k-img", JSON.stringify(ep));
-  check("未配置优化模型时为空串（走自动挑）", ep?.optimizeModel === "", JSON.stringify(ep?.optimizeModel));
+  const ep = resolveOptimizeEndpoint(EMPTY_CFG, NODES, "img");
+  check("未配置时回落到当前激活节点", ep?.apiKey === "k-img" && ep?.baseUrl === "https://img/v1", JSON.stringify(ep));
+  check("回落时模型为空（服务端自动挑）", ep?.optimizeModel === "", JSON.stringify(ep?.optimizeModel));
 }
 
 {
-  const ep = resolveOptimizeEndpoint(NODES, "deleted-node", "img");
-  check("指定的节点已被删除时回落激活节点", ep?.apiKey === "k-img", JSON.stringify(ep));
+  const ep = resolveOptimizeEndpoint({ ...EMPTY_CFG, baseUrl: "https://only-url/v1" }, NODES, "img");
+  check("只填 Base URL 视为未配置（避免把 Key 发到半配置的地址）", ep?.apiKey === "k-img", JSON.stringify(ep));
 }
 
 {
-  const ep = resolveOptimizeEndpoint(NODES, undefined, "missing");
+  const ep = resolveOptimizeEndpoint({ ...EMPTY_CFG, apiKey: "k-only" }, NODES, "img");
+  check("只填 Key 视为未配置", ep?.apiKey === "k-img", JSON.stringify(ep));
+}
+
+{
+  const ep = resolveOptimizeEndpoint(EMPTY_CFG, NODES, "missing");
   check("激活节点失效时回落列表第一个", ep?.apiKey === "k-img", JSON.stringify(ep));
 }
 
-check("没有任何节点时返回 null", resolveOptimizeEndpoint([], undefined, "") === null);
+check("没有任何节点且未配置 → null", resolveOptimizeEndpoint(EMPTY_CFG, [], "") === null);
+check(
+  "没有节点但独立配置齐全 → 仍可用",
+  resolveOptimizeEndpoint(CUSTOM_CFG, [], "")?.apiKey === "k-custom",
+  "无法使用"
+);
 
 console.log(`\n${total - failed}/${total} 通过`);
 if (failed > 0) process.exit(1);

@@ -30,8 +30,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useApiConfig, type ApiProfile } from "@/lib/api-config-context";
+import { useApiConfig, type ApiProfile, type OptimizeConfig } from "@/lib/api-config-context";
 import { buildApiHeaders } from "@/lib/api-headers";
+import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { parseErrorResponse } from "@/lib/error-messages";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -89,7 +90,7 @@ export function SettingsDialog({
 } = {}) {
   const {
     profiles, activeId, saveProfile, removeProfile, setActiveId,
-    optimizeId, setOptimizeId,
+    optimizeConfig, saveOptimizeConfig,
   } = useApiConfig();
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -107,40 +108,51 @@ export function SettingsDialog({
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
 
-  // ---- 提示词优化：节点 + 模型（模型跟节点走，存该节点的 optimizeModel） ----
-  const optimizeNode = profiles.find((p) => p.id === (optimizeId || activeId)) ?? profiles[0] ?? null;
-  const optNodeId = optimizeNode?.id ?? "";
-  const optNodeBase = optimizeNode?.baseUrl ?? "";
-  const optNodeKey = optimizeNode?.apiKey ?? "";
-  const optNodeProxy = optimizeNode?.proxyUrl ?? "";
-  const [modelDraft, setModelDraft] = useState("");
-  // 列表带节点归属：切换节点后，旧节点的列表在返回前不会被误用（避免选到对新节点无效的模型）
-  const [chatModels, setChatModels] = useState<{ nodeId: string; ids: string[] }>({
-    nodeId: "",
-    ids: [],
-  });
-  const chatModelIds = chatModels.nodeId === optNodeId ? chatModels.ids : [];
+  // ---- 提示词优化接口：独立配置（自己填 Base URL / Key / 模型，保存后生效） ----
+  const [optDraft, setOptDraft] = useState<OptimizeConfig>(optimizeConfig);
+  const [optSaved, setOptSaved] = useState(false);
 
-  // 只在打开弹窗或切换节点时同步草稿：外部保存（跨标签页 / 提交）不覆盖正在输入的值
-  const syncedNodeRef = useRef<string | null>(null);
+  // 打开弹窗时同步一次；外部（跨标签页）保存不覆盖正在输入的值
+  const syncedOptimizeRef = useRef(false);
   useEffect(() => {
     if (!dialogOpen) {
-      syncedNodeRef.current = null;
+      syncedOptimizeRef.current = false;
       return;
     }
-    if (syncedNodeRef.current === optNodeId) return;
-    syncedNodeRef.current = optNodeId;
-    setModelDraft(optimizeNode?.optimizeModel ?? "");
-  }, [dialogOpen, optNodeId, optimizeNode?.optimizeModel]);
+    if (syncedOptimizeRef.current) return;
+    syncedOptimizeRef.current = true;
+    setOptDraft(optimizeConfig);
+  }, [dialogOpen, optimizeConfig]);
 
-  // 拉取该节点的对话模型列表（失败只是没有下拉，手填仍可用）
+  const patchOptDraft = (patch: Partial<OptimizeConfig>) => {
+    setOptDraft((prev) => ({ ...prev, ...patch }));
+    setOptSaved(false);
+  };
+
+  const handleSaveOptimize = () => {
+    saveOptimizeConfig(optDraft);
+    setOptSaved(true);
+  };
+
+  // 模型下拉取"当前生效接口"的对话模型（已保存的配置优先，否则当前生图节点）
+  const effectiveOptimize = resolveOptimizeEndpoint(optimizeConfig, profiles, activeId);
+  const optBase = effectiveOptimize?.baseUrl ?? "";
+  const optKey = effectiveOptimize?.apiKey ?? "";
+  const optProxy = effectiveOptimize?.proxyUrl ?? "";
+  const [chatModels, setChatModels] = useState<{ key: string; ids: string[] }>({
+    key: "",
+    ids: [],
+  });
+  const chatModelIds = chatModels.key === optBase ? chatModels.ids : [];
+
+  // 拉取该接口的对话模型列表（失败只是没有下拉，手填仍可用）
   useEffect(() => {
-    if (!dialogOpen || !optNodeId) return;
+    if (!dialogOpen || !optBase || !optKey) return;
     let cancelled = false;
     const headers = buildApiHeaders({
-      apiKey: optNodeKey,
-      baseUrl: optNodeBase,
-      proxyUrl: optNodeProxy,
+      apiKey: optKey,
+      baseUrl: optBase,
+      proxyUrl: optProxy,
     });
     void (async () => {
       try {
@@ -152,22 +164,15 @@ export function SettingsDialog({
               .map((m: { id?: unknown }) => (typeof m?.id === "string" ? m.id : ""))
               .filter(Boolean)
           : [];
-        setChatModels({ nodeId: optNodeId, ids: list });
+        setChatModels({ key: optBase, ids: list });
       } catch {
-        if (!cancelled) setChatModels({ nodeId: optNodeId, ids: [] });
+        if (!cancelled) setChatModels({ key: optBase, ids: [] });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [dialogOpen, optNodeId, optNodeBase, optNodeKey, optNodeProxy]);
-
-  const commitOptimizeModel = () => {
-    if (!optimizeNode) return;
-    const value = modelDraft.trim();
-    if (value === (optimizeNode.optimizeModel ?? "")) return;
-    saveProfile({ ...optimizeNode, optimizeModel: value });
-  };
+  }, [dialogOpen, optBase, optKey, optProxy]);
 
   // 打开弹窗时：选中当前激活的节点开始编辑；无任何配置则进入新建态。
   // 依赖仅 [dialogOpen]：弹窗开着的时候 profiles/activeId 变化（启用切换、
@@ -351,60 +356,82 @@ export function SettingsDialog({
             </Button>
           </div>
 
-          {/* 提示词优化节点：图像专用中转往往没有对话模型，可在这里另指一个通用节点 */}
+          {/* 提示词优化接口：独立配置——自己填地址/Key/模型并保存，不从生图节点里挑 */}
           <div className="space-y-2 border-t border-border pt-3">
-            <label htmlFor="settings-optimize-node" className="text-sm text-muted-foreground block">
-              提示词优化节点
-            </label>
-            <select
-              id="settings-optimize-node"
-              value={optimizeId}
-              onChange={(e) => setOptimizeId(e.target.value)}
-              className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-primary/60"
-            >
-              <option value="">跟随当前节点</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || "未命名节点"}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              「优化提示词」需要一个支持对话模型的节点；当前节点只做生图时，把它指向另一个通用节点即可。
-              <span className="text-foreground/70">注意：生图仍走上面的「使用中」节点，这里选的节点不需要去点「启用」。</span>
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">提示词优化接口（可选）</span>
+              {optSaved && <span className="text-xs text-green-500 animate-fade-in">已保存</span>}
+            </div>
 
-            <label htmlFor="settings-optimize-model" className="text-sm text-muted-foreground block pt-1">
-              优化模型
-            </label>
-            <Input
-              id="settings-optimize-model"
-              list="settings-optimize-model-options"
-              placeholder={optimizeNode ? "留空自动挑选，或从列表选择" : "先添加节点"}
-              value={modelDraft}
-              disabled={!optimizeNode}
-              onChange={(e) => setModelDraft(e.target.value)}
-              onBlur={commitOptimizeModel}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitOptimizeModel();
-                }
-              }}
-            />
-            {/* datalist：点开即见该节点的对话模型，同时保留手填（中转模型名可能不在列表里） */}
-            <datalist id="settings-optimize-model-options">
-              {chatModelIds.map((id) => (
-                <option key={id} value={id} />
-              ))}
-            </datalist>
-            <p className="text-xs text-muted-foreground">
-              {!optimizeNode
-                ? "添加节点后可选择对话模型"
-                : chatModelIds.length > 0
-                  ? `从该节点 /models 取的对话模型（${chatModelIds.length} 个），留空则由服务端自动挑选`
-                  : "该节点未返回对话模型列表，可直接手动填写模型名"}
-            </p>
+            <div>
+              <label htmlFor="settings-optimize-base" className="text-xs text-muted-foreground mb-1 block">
+                API Base URL
+              </label>
+              <Input
+                id="settings-optimize-base"
+                placeholder="https://…/v1（对话模型所在的接口）"
+                value={optDraft.baseUrl}
+                onChange={(e) => patchOptDraft({ baseUrl: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-key" className="text-xs text-muted-foreground mb-1 block">
+                API Key
+              </label>
+              <Input
+                id="settings-optimize-key"
+                type="password"
+                placeholder="sk-…"
+                value={optDraft.apiKey}
+                onChange={(e) => patchOptDraft({ apiKey: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-model" className="text-xs text-muted-foreground mb-1 block">
+                模型
+              </label>
+              <Input
+                id="settings-optimize-model"
+                list="settings-optimize-model-options"
+                placeholder="如 deepseek-v4-flash-0731；留空由服务端自动挑"
+                value={optDraft.model}
+                onChange={(e) => patchOptDraft({ model: e.target.value })}
+              />
+              {/* datalist：点开即见该接口的对话模型，同时保留手填（中转模型名可能不在列表里） */}
+              <datalist id="settings-optimize-model-options">
+                {chatModelIds.map((id) => (
+                  <option key={id} value={id} />
+                ))}
+              </datalist>
+              <p className="text-xs text-muted-foreground mt-1">
+                {chatModelIds.length > 0
+                  ? `已从该接口取到 ${chatModelIds.length} 个对话模型`
+                  : "未取到模型列表时可手动填写模型名"}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-proxy" className="text-xs text-muted-foreground mb-1 block">
+                代理地址（可选）
+              </label>
+              <Input
+                id="settings-optimize-proxy"
+                placeholder="http://127.0.0.1:7890"
+                value={optDraft.proxyUrl}
+                onChange={(e) => patchOptDraft({ proxyUrl: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-xs text-muted-foreground">
+                留空则使用当前生图节点；此配置只用于「优化提示词」，不影响生图。
+              </p>
+              <Button size="sm" onClick={handleSaveOptimize} className="press shrink-0">
+                保存
+              </Button>
+            </div>
           </div>
 
           {/* 编辑表单 */}
