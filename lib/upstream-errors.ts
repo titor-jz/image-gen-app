@@ -25,3 +25,19 @@ export function upstreamErrorHint(message: string): string {
   }
   return "";
 }
+
+/**
+ * 这些错误码表示"连接没建立、请求没发出去"——重试是安全的（不会重复计费）。
+ * 不要包含 ECONNRESET / UND_ERR_SOCKET：它们可能发生在请求已发送之后。
+ */
+const TRANSIENT_CONNECT_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+]);
+
+export function isTransientConnectError(code: string): boolean {
+  return TRANSIENT_CONNECT_CODES.has(code);
+}

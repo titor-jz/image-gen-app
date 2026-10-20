@@ -11,6 +11,7 @@ import {
 } from "@/lib/prompt-optimizer";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { parseModelIds } from "@/lib/model-list";
+import { isTransientConnectError, upstreamErrorHint } from "@/lib/upstream-errors";
 
 /**
  * POST /api/optimize - 用上游对话模型改写提示词（无状态透传）
@@ -186,30 +187,45 @@ export async function POST(request: NextRequest) {
       }
 
       let res;
-      try {
-        // 只发 model + messages：不同厂商对 max_tokens / temperature 的兼容性不一，
-        // 少发一个参数就少一类"这个模型不支持"的失败。
-        res = await httpJsonPost(
-          `${baseURL}/chat/completions`,
-          { model, messages },
-          { Authorization: `Bearer ${apiKey}` },
-          proxyUrl || undefined,
-          Math.min(OPT_TIMEOUT_MS, remaining)
-        );
-      } catch (err) {
-        const name = err instanceof Error ? err.name : "";
-        // 超时是"这个模型太慢"，换下一个候选还有机会；其它网络错误（DNS/TLS/拒绝连接）
-        // 换模型救不了，直接失败。
-        if (name === "TimeoutError" || name === "AbortError") {
-          console.error("[optimize] 上游对话超时:", model);
-          lastFailure = { kind: "upstream", message: `${model} 请求超时` };
-          continue;
+      // 连接没建立就失败时重试一次：请求根本没发出去，不会重复计费。
+      // 实测跨境中转偶发握手挂起（同一地址首次 10s 超时、再次 861ms 成功）。
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const left = deadline - Date.now();
+        if (left < 3000) break;
+        try {
+          // 只发 model + messages：不同厂商对 max_tokens / temperature 的兼容性不一，
+          // 少发一个参数就少一类"这个模型不支持"的失败。
+          res = await httpJsonPost(
+            `${baseURL}/chat/completions`,
+            { model, messages },
+            { Authorization: `Bearer ${apiKey}` },
+            proxyUrl || undefined,
+            Math.min(OPT_TIMEOUT_MS, left)
+          );
+          break;
+        } catch (err) {
+          const name = err instanceof Error ? err.name : "";
+          const causeCode = (err as { cause?: { code?: string } })?.cause?.code ?? "";
+          if (isTransientConnectError(causeCode) && attempt === 0) {
+            console.warn("[optimize] 连接未建立，重试一次:", model, causeCode);
+            continue;
+          }
+          // 超时是"这个模型太慢"，换下一个候选还有机会
+          if (name === "TimeoutError" || name === "AbortError") {
+            console.error("[optimize] 上游对话超时:", model);
+            lastFailure = { kind: "upstream", message: `${model} 请求超时` };
+            break;
+          }
+          const msg = err instanceof Error ? err.message : "网络请求失败";
+          console.error("[optimize] 上游对话请求失败:", model, msg, causeCode);
+          const { body, status } = errorResponse(
+            "OPT_UPSTREAM_FAILED",
+            `${msg}${causeCode ? ` (${causeCode})` : ""}`.slice(0, 200)
+          );
+          return NextResponse.json({ error: body }, { status });
         }
-        const msg = err instanceof Error ? err.message : "网络请求失败";
-        console.error("[optimize] 上游对话请求失败:", model, msg);
-        const { body, status } = errorResponse("OPT_UPSTREAM_FAILED", msg.slice(0, 200));
-        return NextResponse.json({ error: body }, { status });
       }
+      if (!res) continue; // 该候选没拿到响应（超时/预算不足），换下一个
 
       if (res.status === 401 || res.status === 403) {
         // Key 问题：换模型救不了
@@ -252,7 +268,11 @@ export async function POST(request: NextRequest) {
       console.error("[optimize] 上游返回错误:", model, res.status, errMsg.slice(0, 200));
 
       const retryable = MODEL_RETRYABLE_STATUS.has(res.status);
-      lastFailure = { kind: retryable ? "no-model" : "upstream", message: errMsg.slice(0, 200) };
+      const hint = upstreamErrorHint(errMsg);
+      lastFailure = {
+        kind: retryable ? "no-model" : "upstream",
+        message: `${errMsg}${hint ? ` · ${hint}` : ""}`.slice(0, 200),
+      };
       if (!retryable) break;
     }
 

@@ -43,6 +43,7 @@ npm run dev
   |---|---|---|
   | `GEN_TIMEOUT_MS` | 55000 | 上游提交/同步生图超时（须低于 Vercel maxDuration，自托管可放宽到 300000） |
   | `HTTP_GET_TIMEOUT_MS` | 30000 | 上游 GET（轮询/取图）超时 |
+  | `HTTP_CONNECT_TIMEOUT_MS` | 30000 | 上游建连超时（undici 原生 10s；跨境中转偶发握手挂起） |
   | `GEN_MAX_BODY_MB` | 4 | 生成请求体上限（MB），自托管可放宽到 20 |
   | `OPT_TIMEOUT_MS` | 45000 | 提示词改写单次上游超时（推理系模型延迟波动大） |
   | `OPT_TOTAL_BUDGET_MS` | 50000 | 提示词改写整请求总预算（含模型探测与逐候选重试，须低于平台 60s） |

@@ -20,7 +20,7 @@
 - **优化模型可钉死**：同一表单里的「模型」（`OptimizeConfig.model`），下拉选项来自该接口的 `/api/models?type=chat`（只列非图像/向量/语音模型），也允许手填——中转的模型名不常见（如 `deepseek-v4-flash-0731`）时务必填写，自动挑只能按名单/排除法猜，猜错会挑到无关模型（实测某节点列表首个 `Agents-A1` 会超时）。
 - **模型挑选**：客户端/节点指定 > `OPT_MODEL` > `/models` 优先名单（gpt-4o-mini / gpt-4.1-mini / deepseek-chat…）→ 第一个非图像/非向量/非语音模型；列表为空或全不可用（不少中转对普通 token 隐藏 `/models`）时，按常见对话模型逐个探测（400/404/422 才继续，401/403 立即终止）。
 - **只发 `model` + `messages`**：不同厂商对 `max_tokens` / `temperature` 的兼容性不一，少发一个参数少一类失败。
-- **超时与预算**：单次改写 `OPT_TIMEOUT_MS`（默认 45s，推理系模型延迟波动大）；整请求 `OPT_TOTAL_BUDGET_MS`（默认 50s，须低于平台 60s）；`/models` 探测 8s；请求体 `OPT_MAX_BODY_MB`（默认 1MB）。失败返回稳定 `OPT_*` 错误码。
+- **超时与预算**：单次改写 `OPT_TIMEOUT_MS`（默认 45s，推理系模型延迟波动大）；整请求 `OPT_TOTAL_BUDGET_MS`（默认 50s，须低于平台 60s）；`/models` 探测 8s；请求体 `OPT_MAX_BODY_MB`（默认 1MB）；建连超时 `HTTP_CONNECT_TIMEOUT_MS`（默认 30s，undici 原生 10s，跨境中转偶发握手挂起）。连接**未建立**时同一模型自动重试一次（请求没发出去，不会重复计费）；超时则换下一个候选。失败返回稳定 `OPT_*` 错误码，toast 会带出 `details` 里的真实原因。
 
 ## 交互（对齐行业范式）
 

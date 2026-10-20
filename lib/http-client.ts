@@ -1,10 +1,21 @@
-import { ProxyAgent, fetch as undiciFetch, FormData as UndiciFormData, type RequestInit as UndiciRequestInit } from "undici";
+import { Agent, ProxyAgent, fetch as undiciFetch, FormData as UndiciFormData, type RequestInit as UndiciRequestInit } from "undici";
 
 // 上游请求超时：默认对齐 Vercel maxDuration（60s，见 vercel.json）。
 // 本地/自托管部署可用环境变量放宽（如 GEN_TIMEOUT_MS=300000），
 // Vercel 上不配置即维持安全默认（评审 S-5）。
 const GEN_TIMEOUT_MS = Number(process.env.GEN_TIMEOUT_MS) || 55000;
 const GET_TIMEOUT_MS = Number(process.env.HTTP_GET_TIMEOUT_MS) || 30000;
+
+// 建连超时：undici 默认 10s，跨境/中转偶发握手挂起会被过早判死（实测同一地址
+// 第一次 10s 超时、第二次 861ms 成功）。放宽到 30s，失败由调用方的重试兜底。
+const CONNECT_TIMEOUT_MS = Number(process.env.HTTP_CONNECT_TIMEOUT_MS) || 30000;
+
+/** 无代理时的默认 dispatcher（连接池 + 放宽建连超时） */
+const defaultAgent = new Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
+
+function pickDispatcher(proxyUrl?: string) {
+  return proxyUrl ? new ProxyAgent(proxyUrl) : defaultAgent;
+}
 
 export interface HttpResult {
   status: number;
@@ -22,9 +33,7 @@ export async function httpRequest(
     headers: options.headers,
     signal: AbortSignal.timeout(options.timeoutMs ?? GET_TIMEOUT_MS),
   };
-  if (options.proxyUrl) {
-    fetchInit.dispatcher = new ProxyAgent(options.proxyUrl);
-  }
+  fetchInit.dispatcher = pickDispatcher(options.proxyUrl);
   const res = await undiciFetch(urlStr, fetchInit);
 
   const arrayBuf = await res.arrayBuffer();
@@ -54,9 +63,7 @@ export async function httpFormDataRequest(
     body: form,
     signal: AbortSignal.timeout(GEN_TIMEOUT_MS),
   };
-  if (proxyUrl) {
-    fetchInit.dispatcher = new ProxyAgent(proxyUrl);
-  }
+  fetchInit.dispatcher = pickDispatcher(proxyUrl);
   const res = await undiciFetch(urlStr, fetchInit);
 
   const arrayBuf = await res.arrayBuffer();
@@ -96,9 +103,7 @@ export async function httpJsonPost(
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs ?? GEN_TIMEOUT_MS),
   };
-  if (proxyUrl) {
-    fetchInit.dispatcher = new ProxyAgent(proxyUrl);
-  }
+  fetchInit.dispatcher = pickDispatcher(proxyUrl);
   const res = await undiciFetch(urlStr, fetchInit);
 
   const arrayBuf = await res.arrayBuffer();

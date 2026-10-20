@@ -132,10 +132,11 @@ export function usePromptOptimize({
         toast.error(err.message, {
           id: TOAST_ID,
           duration: 10000,
+          // 把上游/网络的真实原因带上，否则只剩一句"请稍后重试"没法排查
           description:
             err.code === "OPT_NO_CHAT_MODEL"
-              ? "已保留原文。可在设置里把「提示词优化节点」指向支持对话模型的节点"
-              : "已保留原文",
+              ? "已保留原文。请在设置里配置「提示词优化接口」（Base URL / Key / 模型）"
+              : [err.details, "已保留原文"].filter(Boolean).join(" · "),
           action: { label: "用本地规则", onClick: () => applyLocal(plan.base, plan.variant) },
         });
         return;
