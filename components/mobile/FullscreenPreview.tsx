@@ -118,6 +118,13 @@ export function FullscreenPreview({
         />
       </div>
 
+      {/* 生成渠道信息：全屏查看时也能确认这张图出自哪个节点/模型 */}
+      <div className="shrink-0 px-4 pb-1 text-center text-[12px] text-white/65 truncate">
+        {result.nodeName ? `${result.nodeName} · ` : ""}
+        {result.model}
+        {result.size && result.size !== "auto" ? ` · ${result.size}` : ""}
+      </div>
+
       {/* 可见切换控件（不依赖手势） */}
       <div className="shrink-0 flex items-center justify-center gap-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <Button

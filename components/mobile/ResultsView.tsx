@@ -76,8 +76,7 @@ export function ResultsView({
                       onDownload={downloadResult}
                       onSaveToGallery={saveResultToGallery}
                       appMode={appMode}
-                      getImageSrc={getResultImageSrc}
-                      showModelAlways
+                      getImageSrc={getResultImageSrc}
                       className="m-shot rounded-2xl"
                     />
                     <ResultCard
@@ -87,8 +86,7 @@ export function ResultsView({
                       onDownload={downloadResult}
                       onSaveToGallery={saveResultToGallery}
                       appMode={appMode}
-                      getImageSrc={getResultImageSrc}
-                      showModelAlways
+                      getImageSrc={getResultImageSrc}
                       className="m-shot rounded-2xl"
                     />
                   </div>

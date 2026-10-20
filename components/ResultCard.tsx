@@ -66,7 +66,6 @@ export function ResultCard({
   onSaveToGallery,
   appMode = false,
   getImageSrc,
-  showModelAlways = false,
   className = "",
 }: {
   result: GenerateResult;
@@ -78,8 +77,6 @@ export function ResultCard({
   /** Capacitor 壳内：卡片操作钮换成保存到相册 */
   appMode?: boolean;
   getImageSrc: (r: GenerateResult) => string;
-  /** 对比组内常驻显示模型名,非对比组仅 hover 显示 */
-  showModelAlways?: boolean;
   /** 外层附加类（移动端 m-shot 等；桌面不传保持原样） */
   className?: string;
 }) {
@@ -94,12 +91,9 @@ export function ResultCard({
         alt={result.prompt}
         className="w-full h-full object-cover transition-slow group-hover:scale-105"
       />
-      {/* 模型名+节点标签:对比组常驻,非对比组仅 hover */}
-      <span
-        className={`absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white/90 transition-base ${
-          showModelAlways ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      >
+      {/* 生成渠道信息：常驻显示（触屏没有 hover，之前只在对比组/鼠标悬停时可见）。
+          pointer-events-none 避免挡住整卡点击。 */}
+      <span className="pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
       {/* 卡片操作钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐。

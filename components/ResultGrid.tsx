@@ -126,8 +126,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
-                    getImageSrc={getImageSrc}
-                    showModelAlways
+                    getImageSrc={getImageSrc}
                   />
                   <ResultCard
                     result={item.b}
@@ -136,8 +135,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
-                    getImageSrc={getImageSrc}
-                    showModelAlways
+                    getImageSrc={getImageSrc}
                   />
                 </div>
               </div>
