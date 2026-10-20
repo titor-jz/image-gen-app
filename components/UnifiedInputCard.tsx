@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { PromptGuide } from "@/components/PromptGuide";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
-import { ACCEPTED_TYPES, validateAndCompress, type RefQuality } from "@/lib/reference-image";
+import { ACCEPTED_TYPES, validateAndCompress, toVerifiedDataUrl, type RefQuality } from "@/lib/reference-image";
 import { useNodeBModels } from "@/hooks/useNodeBModels";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { TaskList } from "@/components/TaskList";
@@ -159,18 +159,18 @@ export function UnifiedInputCard({
     setImgError(null);
     const result = await validateAndCompress(file, refQuality);
     if ("error" in result) { setImgError(result.error); return; }
-    const { blob, mime } = result;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      // 函数式更新:批量多张并发处理时,闭包里的 referenceImages 是旧值,
-      // 直接展开会互相覆盖,只留最后一张
-      onReferenceImagesChange((prev) => [...prev, {
-        id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        name: file.name, base64: dataUrl, mimeType: mime,
-      }]);
-    };
-    reader.readAsDataURL(blob);
+    const dataUrl = await toVerifiedDataUrl(result.blob);
+    if (!dataUrl) {
+      // 解码失败（如 MIME 谎报的 HEIC）：直接拒收，避免列表里出现空白缩略图
+      setImgError("无法读取这张图片，请换一张 JPG / PNG / WEBP");
+      return;
+    }
+    // 函数式更新:批量多张并发处理时,闭包里的 referenceImages 是旧值,
+    // 直接展开会互相覆盖,只留最后一张
+    onReferenceImagesChange((prev) => [...prev, {
+      id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: file.name, base64: dataUrl, mimeType: result.mime,
+    }]);
   }, [onReferenceImagesChange, refQuality]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {

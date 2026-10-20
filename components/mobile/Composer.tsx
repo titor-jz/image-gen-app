@@ -16,7 +16,7 @@ import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2,
 import { Button } from "@/components/ui/button";
 import { PromptGuide } from "@/components/PromptGuide";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
-import { validateAndCompress, type RefQuality } from "@/lib/reference-image";
+import { validateAndCompress, toVerifiedDataUrl, type RefQuality } from "@/lib/reference-image";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
 import type { HistoryRecord } from "@/lib/types";
@@ -136,22 +136,22 @@ export function Composer({
         setImgError(result.error);
         return;
       }
-      const { blob, mime } = result;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        // 函数式更新：批量并发追加时避免旧闭包互相覆盖
-        onReferenceImagesChange((prev) => [
-          ...prev,
-          {
-            id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            name: file.name,
-            base64: dataUrl,
-            mimeType: mime,
-          },
-        ]);
-      };
-      reader.readAsDataURL(blob);
+      const dataUrl = await toVerifiedDataUrl(result.blob);
+      if (!dataUrl) {
+        // 解码失败（如 MIME 谎报的 HEIC）：直接拒收，避免列表里出现空白缩略图
+        setImgError("无法读取这张图片，请换一张 JPG / PNG / WEBP");
+        return;
+      }
+      // 函数式更新：批量并发追加时避免旧闭包互相覆盖
+      onReferenceImagesChange((prev) => [
+        ...prev,
+        {
+          id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          base64: dataUrl,
+          mimeType: result.mime,
+        },
+      ]);
     },
     [onReferenceImagesChange, refQuality]
   );

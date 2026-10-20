@@ -30,6 +30,31 @@ const COMPRESS_PRESETS: Record<
 
 export type RefImageResult = { blob: Blob; mime: string } | { error: string };
 
+/**
+ * Blob → data URL，并验证浏览器真能解码出像素。
+ *
+ * 为什么需要这层：部分安卓相册/文件选择器会把 HEIC/HEIF 标成 image/jpeg，
+ * 类型校验和压缩阶段都看不出来；结果缩略图是一块空白，上传给上游也会失败。
+ * 解码失败就直接拒收，而不是把坏图塞进列表。
+ */
+export async function toVerifiedDataUrl(blob: Blob): Promise<string | null> {
+  const dataUrl = await new Promise<string | null>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+  if (!dataUrl) return null;
+
+  const decodable = await new Promise<boolean>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.width > 0 && img.height > 0);
+    img.onerror = () => resolve(false);
+    img.src = dataUrl;
+  });
+  return decodable ? dataUrl : null;
+}
+
 /** 校验类型/大小并按档位压缩；失败返回 { error }（文案可直接展示） */
 export async function validateAndCompress(
   file: File,
