@@ -153,13 +153,15 @@ export function MobileHome(props: MobileHomeProps) {
     const failed = props.tasks.filter(
       (t) => t.status === "failed" || t.status === "timeout"
     ).length;
-    const progress = running.length
-      ? running.reduce((sum, t) => sum + (t.progress || 0), 0) / running.length
+    // 上游不返回真实进度：只给已等待秒数，进度条用流动光带表示"进行中"，
+    // 避免 0→100 的假百分比跳动（与桌面 TaskList 的取舍一致）
+    const elapsedSec = running.length
+      ? Math.max(...running.map((t) => t.elapsedSec || 0))
       : 0;
     return {
       running: running.length,
       failed,
-      progress,
+      elapsedSec,
       resultCount: props.results.length,
     };
   }, [props.tasks, props.results.length]);

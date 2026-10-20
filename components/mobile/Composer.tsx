@@ -102,7 +102,7 @@ export function Composer({
   /** 参数摘要文案（如 "GPT-Image2 · 自动 · 1K · 1张"） */
   paramSummary: string;
   /** 任务状态摘要：底部坞用它显示进度条 / 失败 / 结果入口 */
-  taskSummary: { running: number; failed: number; progress: number; resultCount: number };
+  taskSummary: { running: number; failed: number; elapsedSec: number; resultCount: number };
   /** 生成前置/请求错误（未配置 Key、上游失败）：移动端此前没有展示位置 */
   error?: string | null;
   /** 错误来源分类（本地配置/网络/上游服务） */
@@ -489,15 +489,14 @@ export function Composer({
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   正在生成 {taskSummary.running} 张…
                 </span>
+                {/* 上游不返回真实进度：只显示已等待秒数，不用假百分比 */}
                 <span className="tabular-nums text-[12px]">
-                  {Math.round(taskSummary.progress * 100)}%
+                  {taskSummary.elapsedSec > 0 ? `${taskSummary.elapsedSec}s` : "提交中"}
                 </span>
               </div>
-              <div className="mt-1.5 h-1.5 rounded-full bg-primary/15 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${Math.max(4, Math.round(taskSummary.progress * 100))}%` }}
-                />
+              <div className="relative mt-1.5 h-1.5 rounded-full bg-primary/15 overflow-hidden">
+                <div className="h-full w-1/3 rounded-full bg-primary/60" />
+                <div className="absolute inset-0 animate-shimmer rounded-full" />
               </div>
             </button>
           ) : taskSummary.failed > 0 ? (
