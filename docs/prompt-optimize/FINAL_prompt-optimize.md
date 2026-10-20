@@ -60,9 +60,16 @@
 - `lib/error-messages.ts`：新增 `OPT_NO_CHAT_MODEL` / `OPT_UPSTREAM_FAILED` / `OPT_BAD_RESPONSE`。
 - 本地规则引擎保留：`lib/prompt-enhancer.ts`，仅作为用户主动选择的兜底。
 
+## 输入规则与创作须知（2026-10-18）
+
+- 提示词上限 `MAX_PROMPT_CHARS = 2000`（`lib/prompt-rules.ts`）：输入框 `maxLength`、界面计数、`/api/generate` 与 `/api/optimize` 校验**同源**；超限返回 `REQ_PROMPT_TOO_LONG`，不做静默截断（`?prompt=` 预填除外，按上限截断）。
+- 输入卡（桌面/移动）把「字数 / 2000」「创作须知」与「优化提示词」并到同一行元信息里（原优化按钮独占一行，已移除）。
+- 创作须知通过统一组件 `components/PromptGuide.tsx` 展示：写什么（主体 + 动作/环境 + 风格/光线/画幅）、长度、八类常见禁止内容，并明确说明上游可能另有审核词表。
+- 移动端补齐 @ 提及参考图（此前仅桌面支持），交互与桌面一致：输入 @ 弹出图片列表，点选插入 `@图片名`。
+
 ## 验证
 
-- `node scripts/check-prompt-optimizer.mts` → **57/57**：清洗（围栏/中英前缀/引号/换行/超长截断）、模型挑选（偏好顺序、厂商前缀、版本化 id、图像/TTS 排除、全图像时返回 null）、对话模型判定（`isChatModel`）、改写计划（首次/换版/用户改动/原文丢失）、画幅白名单、指令（图生图/画幅/换版/超长截断）、优化节点解析（指定/跟随/节点被删/节点列表为空/模型随节点）。
+- `node scripts/check-prompt-optimizer.mts` → **58/58**：清洗（围栏/中英前缀/引号/换行/超长截断）、模型挑选（偏好顺序、厂商前缀、版本化 id、图像/TTS 排除、全图像时返回 null）、对话模型判定（`isChatModel`）、改写计划（首次/换版/用户改动/原文丢失）、画幅白名单、指令（图生图/画幅/换版/超长截断）、优化节点解析（指定/跟随/节点被删/节点列表为空/模型随节点）。
 - `node scripts/check-prompt-enhancer.mts` → **46/46**（本地兜底引擎回归）。
 - `npx tsc --noEmit` 0 错误；`npm run lint` 0 错误（6 条既有 `<img>` 警告）。
 - 路由端到端（本地 mock 上游，`REVIEW.md` 有完整处置记录）：正常改写 / `/models` 为空时探测候选 / 对话端点全 404 → `OPT_NO_CHAT_MODEL` / 非 JSON 与空内容 → `OPT_BAD_RESPONSE` / 首个候选超时 → 自动换下一个成功 / 上游不可达 → `OPT_UPSTREAM_FAILED`，全部符合预期；模型自动跳过图像模型选中 `gpt-4o-mini`。

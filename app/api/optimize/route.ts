@@ -9,6 +9,7 @@ import {
   normalizeSize,
   MAX_INPUT_CHARS,
 } from "@/lib/prompt-optimizer";
+import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 
 /**
  * POST /api/optimize - 用上游对话模型改写提示词（无状态透传）
@@ -143,8 +144,13 @@ export async function POST(request: NextRequest) {
       const { body, status } = errorResponse("REQ_MISSING_PROMPT");
       return NextResponse.json({ error: body }, { status });
     }
+    // 与生图共用同一条长度规则（lib/prompt-rules.ts），不静默截断
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      const { body, status } = errorResponse("REQ_PROMPT_TOO_LONG", `上限 ${MAX_PROMPT_CHARS} 字`);
+      return NextResponse.json({ error: body }, { status });
+    }
 
-    const messages = buildOptimizeMessages(prompt.slice(0, MAX_INPUT_CHARS), {
+    const messages = buildOptimizeMessages(prompt, {
       // 只接受已知画幅：它会拼进 system prompt，不能把任意文本带进去
       size: normalizeSize(input.size),
       hasReference: input.hasReference === true,

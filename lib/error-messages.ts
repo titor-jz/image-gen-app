@@ -22,6 +22,7 @@ export type ErrorCode =
   | "REQ_BODY_TOO_LARGE"
   | "REQ_BAD_FORMAT"
   | "REQ_MISSING_PROMPT"
+  | "REQ_PROMPT_TOO_LONG"
   | "REQ_INVALID_UPSTREAM_URL"
   // 上游 API
   | "GEN_UPSTREAM_NETWORK"
@@ -62,6 +63,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   REQ_BODY_TOO_LARGE: "请求体过大，请减少参考图数量或使用更小的图片",
   REQ_BAD_FORMAT: "请求格式错误，请刷新页面重试",
   REQ_MISSING_PROMPT: "请输入提示词",
+  REQ_PROMPT_TOO_LONG: "提示词过长，请精简后重试",
   REQ_INVALID_UPSTREAM_URL: "上游地址不合法（不允许内网/保留地址），请检查 API 节点配置",
 
   // 上游
@@ -101,6 +103,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   REQ_BODY_TOO_LARGE: 413,
   REQ_BAD_FORMAT: 400,
   REQ_MISSING_PROMPT: 400,
+  REQ_PROMPT_TOO_LONG: 400,
   REQ_INVALID_UPSTREAM_URL: 400,
 
   GEN_UPSTREAM_NETWORK: 502,

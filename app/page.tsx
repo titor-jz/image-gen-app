@@ -31,6 +31,7 @@ import {
 } from "@/components/UnifiedInputCard";
 import { ResultGrid } from "@/components/ResultGrid";
 import { getSettings } from "@/lib/user-settings";
+import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { useModels } from "@/hooks/useModels";
 import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
@@ -81,7 +82,8 @@ export default function Home() {
     if (settings.refQuality) setRefQuality(settings.refQuality);
     // ?prompt=xxx 预填（分享链接 / 自测用）：必须在挂载后读，SSR 首帧保持空串
     const initialPrompt = new URLSearchParams(window.location.search).get("prompt");
-    if (initialPrompt) setPrompt(initialPrompt);
+    // 分享链接可能超长：按输入上限截断，保证与服务端校验一致
+    if (initialPrompt) setPrompt(initialPrompt.slice(0, MAX_PROMPT_CHARS));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 

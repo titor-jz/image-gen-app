@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server, Wand2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
+import { PromptGuide } from "@/components/PromptGuide";
+import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { ACCEPTED_TYPES, validateAndCompress, type RefQuality } from "@/lib/reference-image";
 import { useNodeBModels } from "@/hooks/useNodeBModels";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
@@ -107,6 +109,8 @@ export function UnifiedInputCard({
   /** 整卡拖放：拖文件悬停在卡片任意位置时高亮（区别于小虚线框的 isDragging） */
   const [cardDragOver, setCardDragOver] = useState(false);
   const [imgError, setImgError] = useState<string | null>(null);
+  /** 创作须知展开态（写什么/长度/禁止内容） */
+  const [showGuide, setShowGuide] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionPos, setMentionPos] = useState(0);
@@ -305,6 +309,7 @@ export function UnifiedInputCard({
             placeholder="在此处拖入图片，并写入提示词"
             /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
             className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
+            maxLength={MAX_PROMPT_CHARS}
             rows={4}
           />
           {prompt && (
@@ -314,8 +319,29 @@ export function UnifiedInputCard({
           )}
         </div>
 
-        {/* 提示词优化：走节点上游的对话模型改写（消耗少量额度）；连点可换一版，撤销在 toast 里 */}
-        <div className="mt-2 flex items-center justify-end">
+        {/* 元信息行：字数/须知在左，优化在右——不额外占一行高度 */}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={
+                prompt.length > MAX_PROMPT_CHARS * 0.9
+                  ? "text-amber-500 tabular-nums"
+                  : "text-muted-foreground tabular-nums"
+              }
+            >
+              {prompt.length} / {MAX_PROMPT_CHARS}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowGuide((v) => !v)}
+              className="text-muted-foreground press transition-base hover:text-foreground"
+              aria-expanded={showGuide}
+            >
+              {showGuide ? "收起须知" : "创作须知"}
+            </button>
+          </div>
+
+          {/* 提示词优化：走节点上游的对话模型改写（消耗少量额度）；连点可换一版，撤销在 toast 里 */}
           <button
             type="button"
             onClick={onOptimizePrompt}
@@ -331,6 +357,8 @@ export function UnifiedInputCard({
             {optimizeLoading ? "优化中…" : "优化提示词"}
           </button>
         </div>
+
+        {showGuide && <PromptGuide className="mt-2 animate-fade-in" />}
 
         {/* @ 提及建议：portal 到 body + fixed 定位，避免被卡片 overflow-hidden 裁剪导致图片多时看不到 */}
         {showMentions && filteredMentions.length > 0 && mentionRect && createPortal(

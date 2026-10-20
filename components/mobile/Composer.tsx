@@ -14,6 +14,8 @@
 import { useState, useRef, useCallback } from "react";
 import { Upload, X, ImagePlus, Sparkles, ChevronDown, Loader2, RefreshCw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PromptGuide } from "@/components/PromptGuide";
+import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { validateAndCompress, type RefQuality } from "@/lib/reference-image";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import type { ReferenceImage } from "@/components/UnifiedInputCard";
@@ -109,6 +111,12 @@ export function Composer({
   optimizeLoading?: boolean;
 }) {
   const [imgError, setImgError] = useState<string | null>(null);
+  /** 创作须知展开态（写什么/长度/禁止内容） */
+  const [showGuide, setShowGuide] = useState(false);
+  // @ 提及参考图（移动端此前没有，补齐与桌面一致的能力）
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionPos, setMentionPos] = useState(0);
   // 灵感池随机抽样：打开随机一批，「换一批」重掷（key 变化触发入场动画）
   const [suggestions, setSuggestions] = useState<string[]>(() => pickSuggestions(SUGGESTION_POOL, 6));
   const [suggestRoll, setSuggestRoll] = useState(0);
@@ -154,6 +162,49 @@ export function Composer({
 
   const isFull = referenceImages.length >= MAX_COUNT;
 
+  const filteredMentions = referenceImages.filter((img) =>
+    img.name.toLowerCase().includes(mentionQuery.toLowerCase())
+  );
+
+  /** 选中参考图 → 把 "@图片名 " 插入光标处 */
+  const insertMention = useCallback(
+    (img: ReferenceImage) => {
+      const tag = `@${img.name} `;
+      const beforeAt = prompt.slice(0, prompt.slice(0, mentionPos).lastIndexOf("@"));
+      const afterCursor = prompt.slice(mentionPos);
+      onPromptChange(beforeAt + tag + afterCursor);
+      setShowMentions(false);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const pos = beforeAt.length + tag.length;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      });
+    },
+    [prompt, mentionPos, onPromptChange]
+  );
+
+  /** 输入 @ 触发提及列表（与桌面端判定一致：@ 后到光标之间不能有空格） */
+  const handlePromptChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value;
+      const pos = e.target.selectionStart ?? value.length;
+      const before = value.slice(0, pos);
+      const at = before.lastIndexOf("@");
+      if (at !== -1 && !before.slice(at + 1).includes(" ")) {
+        setShowMentions(true);
+        setMentionQuery(before.slice(at + 1));
+        setMentionPos(pos);
+        onPromptChange(value);
+        return;
+      }
+      setShowMentions(false);
+      onPromptChange(value);
+    },
+    [onPromptChange]
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* 输入区（可滚动） */}
@@ -170,16 +221,64 @@ export function Composer({
           <textarea
             ref={textareaRef}
             value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
+            onChange={handlePromptChange}
             placeholder="例如：雨夜霓虹下的赛博朋克街道，电影感广角…"
             className="w-full min-h-[120px] resize-none bg-transparent text-foreground text-[17px] leading-relaxed placeholder:text-muted-foreground/62 outline-none"
+            maxLength={MAX_PROMPT_CHARS}
             rows={4}
           />
           {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
 
-          {/* 提示词优化：有输入才出现（空态这一格让给下方灵感池，不抢位） */}
-          {prompt.trim() !== "" && (
-            <div className="mt-3 flex justify-end animate-fade-in">
+          {/* @ 提及参考图（与桌面端行为一致；移动端原来砍掉了，现在补上） */}
+          {showMentions && filteredMentions.length > 0 && (
+            <div className="mt-2 rounded-xl border border-border/60 bg-background/85 overflow-hidden animate-fade-in">
+              <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border/60">
+                选择参考图片（{filteredMentions.length} 张）
+              </div>
+              <div className="max-h-44 overflow-y-auto">
+                {filteredMentions.map((img) => (
+                  <button
+                    key={img.id}
+                    type="button"
+                    onClick={() => insertMention(img)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left press active:bg-accent/40"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- 本地 base64 缩略图，不走 next/image */}
+                    <img
+                      src={img.base64}
+                      alt={img.name}
+                      className="w-8 h-8 rounded-md object-cover shrink-0 ring-1 ring-border/50"
+                    />
+                    <span className="text-sm truncate">{img.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 元信息：字数 + 须知（左），优化（右） */}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-[11px]">
+              <span
+                className={
+                  prompt.length > MAX_PROMPT_CHARS * 0.9
+                    ? "text-amber-500 tabular-nums"
+                    : "text-muted-foreground tabular-nums"
+                }
+              >
+                {prompt.length}/{MAX_PROMPT_CHARS}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowGuide((v) => !v)}
+                className="text-muted-foreground press active:text-foreground"
+                aria-expanded={showGuide}
+              >
+                {showGuide ? "收起须知" : "创作须知"}
+              </button>
+            </div>
+
+            {prompt.trim() !== "" && (
               <button
                 type="button"
                 onClick={onOptimizePrompt}
@@ -193,8 +292,10 @@ export function Composer({
                 )}
                 {optimizeLoading ? "优化中…" : "优化提示词"}
               </button>
-            </div>
-          )}
+            )}
+          </div>
+
+          {showGuide && <PromptGuide className="mt-2" />}
 
           {/* 参考图轨（舞台内） */}
           {(referenceImages.length > 0 || !isFull) && (

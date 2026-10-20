@@ -4,6 +4,7 @@ import { httpRequest, httpFormDataRequest, httpJsonPost } from "@/lib/http-clien
 import { errorResponse } from "@/lib/error-messages";
 import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
+import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 
 // gpt-image-2 支持的尺寸
 // 2K 档(默认):适合快速出图
@@ -88,6 +89,12 @@ export async function POST(request: NextRequest) {
 
     if (!prompt) {
       const { body, status } = errorResponse("REQ_MISSING_PROMPT");
+      return NextResponse.json({ error: body }, { status });
+    }
+
+    // 与输入框 maxLength / 计数同源（lib/prompt-rules.ts），UI 与服务端不会各说各话
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      const { body, status } = errorResponse("REQ_PROMPT_TOO_LONG", `上限 ${MAX_PROMPT_CHARS} 字`);
       return NextResponse.json({ error: body }, { status });
     }
 
