@@ -6,9 +6,10 @@
  * 从 ResultGrid 抽出（纯搬移）。
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FolderDown, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { aspectOf } from "@/lib/aspect";
 import type { GenerateResult } from "@/lib/types";
 
 /**
@@ -22,14 +23,37 @@ export function FadeInImage({
   alt,
   className,
   style,
+  onRatio,
 }: {
   src: string;
   alt: string;
   className?: string;
   style?: React.CSSProperties;
+  /** 图片解码后回报自然宽高比（用于「画幅未知」的结果按真实比例排版） */
+  onRatio?: (ratio: number) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  // onRatio 每次渲染都是新函数；用 ref 存住，供挂载补检使用
+  const ratioRef = useRef(onRatio);
+  useEffect(() => {
+    ratioRef.current = onRatio;
+  }, [onRatio]);
+
+  // 水合竞态兜底：图片可能在本组件的 onLoad 挂上之前就已加载完成
+  // （SSR 出来的 <img> 由浏览器先解码）。此时 onLoad 永不触发，
+  // 会导致 opacity 一直 0（图看不见）、自然比例也拿不到。挂载后补检一次。
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || !img.complete) return;
+    if (img.naturalWidth > 0) {
+      setLoaded(true);
+      ratioRef.current?.(img.naturalWidth / img.naturalHeight);
+    } else if (img.currentSrc || img.src) {
+      setFailed(true);
+    }
+  }, []);
   if (failed) {
     return (
       <div
@@ -44,10 +68,17 @@ export function FadeInImage({
   }
   return (
     <img
+      ref={imgRef}
       src={src}
       alt={alt}
       loading="lazy"
-      onLoad={() => setLoaded(true)}
+      onLoad={(e) => {
+        setLoaded(true);
+        const img = e.currentTarget;
+        if (onRatio && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          onRatio(img.naturalWidth / img.naturalHeight);
+        }
+      }}
       onError={() => setFailed(true)}
       style={style}
       className={`${className} transition-opacity duration-300 ${
@@ -80,20 +111,29 @@ export function ResultCard({
   /** 外层附加类（移动端 m-shot 等；桌面不传保持原样） */
   className?: string;
 }) {
+  // 画幅：优先用生成时记录的尺寸；「自动」等未知情况退到图片自然比例，
+  // 解码前先用 1:1 占位（避免 0 高度闪一下）。
+  const knownRatio = aspectOf(result.size);
+  const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
+  const ratio = knownRatio ?? naturalRatio ?? 1;
+
   return (
     <div
-      className={`group relative aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up ${className}`}
-      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+      className={`result-card group relative rounded-xl overflow-hidden bg-muted cursor-pointer ring-1 ring-border/50 press-sm animate-fade-up ${className}`}
+      style={{ animationDelay: `${Math.min(index, 8) * 60}ms`, aspectRatio: String(ratio) }}
       onClick={() => onExpand(index)}
     >
       <FadeInImage
         src={getImageSrc(result)}
         alt={result.prompt}
-        className="w-full h-full object-cover transition-slow group-hover:scale-105"
+        onRatio={knownRatio ? undefined : setNaturalRatio}
+        // object-contain：卡片比例与图一致时等同铺满；万一上游尺寸没按请求返回，
+        // 也只留边、不裁掉画面内容
+        className="w-full h-full object-contain transition-slow group-hover:scale-105"
       />
       {/* 生成渠道信息：常驻显示（触屏没有 hover，之前只在对比组/鼠标悬停时可见）。
           pointer-events-none 避免挡住整卡点击。 */}
-      <span className="pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">
+      <span className="result-card-tag pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
       {/* 卡片操作钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐。
