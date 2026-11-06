@@ -204,7 +204,9 @@ export function MobileHome(props: MobileHomeProps) {
   }, [onNavApi, previewIndex, paramPicker, paramOpen, historyOpen, nodeOpen, settingsOpen, view]);
 
   return (
-    <div className="flex flex-col h-dvh bg-background m-ambient">
+    /* ui-instrument：移动端也套同一套仪器语言。结构（底部 dock + 参数面板）不动，
+       只换材质与配色——覆写规则见 globals.css 末尾的「移动端仪器化」段。 */
+    <div className="ui-instrument flex flex-col h-dvh bg-background m-ambient">
       {/* 胶片颗粒（暗房物质感；静态层，不参与交互与滚动） */}
       <div className="m-grain" aria-hidden="true" />
       {/* 顶栏：随状态切换 */}
