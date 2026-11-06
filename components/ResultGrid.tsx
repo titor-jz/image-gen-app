@@ -20,9 +20,14 @@ interface ResultGridProps {
   results: GenerateResult[];
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
+  /**
+   * 点图的处理。触屏上传入本回调走全屏预览（可左右滑、Capacitor 内直接存相册）；
+   * 不传则用内置的展开预览（桌面）。
+   */
+  onPreviewRequest?: (index: number) => void;
 }
 
-export function ResultGrid({ results, hasRunning }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
@@ -66,6 +71,10 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const renderItems = buildResultRenderItems(results);
 
   const handleExpand = (i: number) => {
+    if (onPreviewRequest) {
+      onPreviewRequest(i);
+      return;
+    }
     setExpandedIndex(expandedIndex === i ? null : i);
     setZoom(1);
   };

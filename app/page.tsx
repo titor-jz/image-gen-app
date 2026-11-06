@@ -43,7 +43,7 @@ import { useImageGeneration } from "@/hooks/useImageGeneration";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { MobileHome, type MobileNavApi } from "@/components/mobile/MobileHome";
+import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
 import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
@@ -156,22 +156,29 @@ export default function Home() {
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
 
-  // 6.0 移动端布局（<640px）：专注式两态推拉，经 MobileHome 渲染
+  // 6.0 全屏预览（手机/触屏：点图全屏、可左右滑、Capacitor 内直接存相册）
+  //     桌面仍用 ResultGrid 内置的展开预览，不额外套全屏层。
   const isMobile = useIsMobile();
-  const mobileNavRef = useRef<MobileNavApi | null>(null);
-  const handleNavApi = useCallback((api: MobileNavApi | null) => {
-    mobileNavRef.current = api;
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  // Capacitor 壳内全屏预览显示「保存到相册」（a[download] 无效）；挂载后检测
+  const [canSaveToGallery, setCanSaveToGallery] = useState(false);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setCanSaveToGallery(isCapacitor());
   }, []);
 
   // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
-  //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）。
-  //     showHistory 经 ref 读取、监听器只在挂载时注册一次——
-  //     按 [showHistory] 重挂会在 cleanup 与 await 之间产生竞态，
-  //     快速开关抽屉会累积监听器（旧闭包捕获旧状态，见评审 A-4）。
+  //     全屏预览 → 历史抽屉 → 退出应用（SPA 无浏览历史可回退）。
+  //     状态经 ref 读取、监听器只在挂载时注册一次——
+  //     按依赖重挂会在 cleanup 与 await 之间产生竞态、累积监听器（见评审 A-4）。
   const showHistoryRef = useRef(showHistory);
   useEffect(() => {
     showHistoryRef.current = showHistory;
   }, [showHistory]);
+  const previewRef = useRef(previewIndex);
+  useEffect(() => {
+    previewRef.current = previewIndex;
+  }, [previewIndex]);
 
   useEffect(() => {
     if (!isCapacitor()) return;
@@ -181,8 +188,10 @@ export default function Home() {
       try {
         const { App } = await import("@capacitor/app");
         const l = await App.addListener("backButton", () => {
-          // 移动端接管顺序：全屏预览 → 参数/历史面板 → 结果态 → 交还此处
-          if (mobileNavRef.current?.handleBack()) return;
+          if (previewRef.current !== null) {
+            setPreviewIndex(null);
+            return;
+          }
           if (showHistoryRef.current) {
             setShowHistory(false);
           } else {
@@ -233,52 +242,10 @@ export default function Home() {
     }
   }, [setResults]);
 
-  if (isMobile) {
-    return (
-      <MobileHome
-        prompt={prompt}
-        onPromptChange={setPrompt}
-        referenceImages={referenceImages}
-        onReferenceImagesChange={setReferenceImages}
-        models={models}
-        modelsLoading={modelsLoading}
-        selectedModel={effectiveModel}
-        onModelChange={setSelectedModel}
-        selectedSize={selectedSize}
-        onSizeChange={setSelectedSize}
-        selectedQuality={selectedQuality}
-        onQualityChange={setSelectedQuality}
-        selectedN={selectedN}
-        onNChange={setSelectedN}
-        refQuality={refQuality}
-        onRefQualityChange={setRefQuality}
-        compareMode={compareMode}
-        onCompareModeChange={setCompareMode}
-        modelB={modelB}
-        onModelBChange={setModelB}
-        profiles={profiles}
-        activeNodeId={activeId}
-        nodeBId={nodeB?.id ?? null}
-        onNodeBChange={setNodeBId}
-        results={results}
-        tasks={tasks}
-        onCancelTask={cancelTask}
-        onResumeTask={resumeTask}
-        onDismissTask={dismissTask}
-        onGenerate={handleGenerate}
-        error={error}
-        errorCode={errorCode}
-        onSelectHistory={handleSelectRecord}
-        onNavApi={handleNavApi}
-        onOptimizePrompt={handleOptimizePrompt}
-        optimizeLoading={optimizeLoading}
-      />
-    );
-  }
 
   return (
-    /* ui-instrument：桌面端仪器面板视觉层（见 globals.css）。
-       移动端走上面的 MobileHome 分支，不套这个 class。 */
+    /* ui-instrument：仪器面板视觉层（见 globals.css）。手机与桌面用同一套结构与背景，
+       只在触屏上额外挂一层全屏预览。 */
     <div className="ui-instrument flex flex-col h-dvh bg-background">
       <Header onShowHistory={() => setShowHistory(true)} />
 
@@ -376,10 +343,26 @@ export default function Home() {
         {/* 输出图库：直接铺在面板底色上，图自己带画框 */}
         <div className="mx-auto w-full max-w-[1320px] px-6 lg:px-10 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
           <div className="animate-fade-up [animation-delay:120ms]">
-            <ResultGrid results={results} hasRunning={loading} />
+            <ResultGrid
+              results={results}
+              hasRunning={loading}
+              // 触屏：点图走全屏预览（可左右滑、Capacitor 内直接存相册）
+              onPreviewRequest={isMobile ? setPreviewIndex : undefined}
+            />
           </div>
         </div>
       </main>
+
+      {/* 全屏预览层：只在触屏点图后挂载 */}
+      {isMobile && previewIndex !== null && results[previewIndex] && (
+        <FullscreenPreview
+          results={results}
+          index={previewIndex}
+          onIndexChange={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+          appMode={canSaveToGallery}
+        />
+      )}
     </div>
   );
 }

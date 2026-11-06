@@ -108,7 +108,7 @@ export function ResultCard({
   /** Capacitor 壳内：卡片操作钮换成保存到相册 */
   appMode?: boolean;
   getImageSrc: (r: GenerateResult) => string;
-  /** 外层附加类（移动端 m-shot 等；桌面不传保持原样） */
+  /** 外层附加类（调用方可追加阴影/圆角等，默认不传） */
   className?: string;
 }) {
   // 画幅：优先用生成时记录的尺寸；「自动」等未知情况退到图片自然比例，
@@ -136,14 +136,17 @@ export function ResultCard({
       <span className="result-card-tag pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
       </span>
-      {/* 卡片操作钮：触屏无 hover，移动端常驻；桌面保留 hover 显隐。
+      {/* 卡片操作钮。
+          触屏（<sm）没有 hover：遮罩改成不吃点击的透明层，操作钮缩到右上角，
+          其余整块留给「点开看图」——否则居中的按钮会把点击吞掉，图点不开。
+          桌面（≥sm）保持原来的居中遮罩 + hover 显隐。
           APP 环境 a[download] 无效 → 同一位置换成原生「保存到相册」 */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-base flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+      <div className="pointer-events-none absolute inset-0 transition-base sm:flex sm:items-center sm:justify-center sm:bg-black/0 sm:opacity-0 sm:group-hover:bg-black/40 sm:group-hover:opacity-100">
         {appMode ? (
           <Button
             variant="secondary"
             size="icon"
-            className="press"
+            className="pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
             onClick={(e) => {
               e.stopPropagation();
               onSaveToGallery?.(result);
@@ -156,7 +159,7 @@ export function ResultCard({
           <Button
             variant="secondary"
             size="icon"
-            className="press"
+            className="pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
             onClick={(e) => {
               e.stopPropagation();
               onDownload(result);

@@ -122,7 +122,7 @@ export function UnifiedInputCard({
   // 优化后文本会变长，输入框跟着长高（超过 240px 转内部滚动）
   useAutoGrowTextarea(textareaRef, prompt, 240);
 
-  // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，移动端 ParamSheet 复用）
+  // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，便于单独复用）
   const nodeBProfile = profiles.find((p) => p.id === nodeBId) ?? null;
   const { modelsB, isCrossNode } = useNodeBModels({
     compareMode,
