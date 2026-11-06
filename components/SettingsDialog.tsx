@@ -293,14 +293,15 @@ export function SettingsDialog({
           </Button>
         }
       />
-      <DialogContent className="bg-card border-border animate-scale-in max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+      {/* ui-instrument：弹窗走 portal 会脱离页面根节点，必须自己带上视觉作用域 */}
+      <DialogContent className="ui-instrument bg-card border-[color:var(--inst-line-2)] rounded-[4px] animate-scale-in max-h-[85dvh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>API 节点设置</DialogTitle>
+          <DialogTitle className="inst-label text-[13px] text-foreground">API 节点设置</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* 节点列表：点击选中编辑； radio 标识当前激活（生成时使用） */}
-          <div className="space-y-1.5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[248px_1fr] sm:gap-6">
+          {/* 左列：节点列表（点击选中编辑；「使用中」标识生成时用哪套配置） */}
+          <div className="space-y-1.5 sm:border-r sm:border-border/70 sm:pr-5">
             {profiles.map((p) => {
               const isEditing = editingId === p.id;
               const isActive = p.id === activeId;
@@ -355,6 +356,9 @@ export function SettingsDialog({
               新建节点
             </Button>
           </div>
+
+          {/* 右列：提示词优化接口 + 节点编辑表单 + 操作 */}
+          <div className="min-w-0 space-y-4">
 
           {/* 提示词优化接口：独立配置——自己填地址/Key/模型并保存，不从生图节点里挑 */}
           <div className="space-y-2 border-t border-border pt-3">
@@ -560,6 +564,7 @@ export function SettingsDialog({
               {testMessage}
             </p>
           )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

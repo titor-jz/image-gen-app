@@ -25,6 +25,7 @@ import { Header } from "@/components/Header";
 import { HistoryDrawerSkeleton } from "@/components/drawer-skeleton";
 import {
   UnifiedInputCard,
+  SIZES,
   type Quality,
   type RefQuality,
   type ReferenceImage,
@@ -42,7 +43,7 @@ import { useImageGeneration } from "@/hooks/useImageGeneration";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { MobileHome, type MobileNavApi } from "@/components/mobile/MobileHome";
+import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
 import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
@@ -155,22 +156,29 @@ export default function Home() {
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
 
-  // 6.0 移动端布局（<640px）：专注式两态推拉，经 MobileHome 渲染
+  // 6.0 全屏预览（手机/触屏：点图全屏、可左右滑、Capacitor 内直接存相册）
+  //     桌面仍用 ResultGrid 内置的展开预览，不额外套全屏层。
   const isMobile = useIsMobile();
-  const mobileNavRef = useRef<MobileNavApi | null>(null);
-  const handleNavApi = useCallback((api: MobileNavApi | null) => {
-    mobileNavRef.current = api;
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  // Capacitor 壳内全屏预览显示「保存到相册」（a[download] 无效）；挂载后检测
+  const [canSaveToGallery, setCanSaveToGallery] = useState(false);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setCanSaveToGallery(isCapacitor());
   }, []);
 
   // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
-  //     历史抽屉开着 → 先关抽屉；否则退出应用（SPA 无浏览历史可回退）。
-  //     showHistory 经 ref 读取、监听器只在挂载时注册一次——
-  //     按 [showHistory] 重挂会在 cleanup 与 await 之间产生竞态，
-  //     快速开关抽屉会累积监听器（旧闭包捕获旧状态，见评审 A-4）。
+  //     全屏预览 → 历史抽屉 → 退出应用（SPA 无浏览历史可回退）。
+  //     状态经 ref 读取、监听器只在挂载时注册一次——
+  //     按依赖重挂会在 cleanup 与 await 之间产生竞态、累积监听器（见评审 A-4）。
   const showHistoryRef = useRef(showHistory);
   useEffect(() => {
     showHistoryRef.current = showHistory;
   }, [showHistory]);
+  const previewRef = useRef(previewIndex);
+  useEffect(() => {
+    previewRef.current = previewIndex;
+  }, [previewIndex]);
 
   useEffect(() => {
     if (!isCapacitor()) return;
@@ -180,8 +188,10 @@ export default function Home() {
       try {
         const { App } = await import("@capacitor/app");
         const l = await App.addListener("backButton", () => {
-          // 移动端接管顺序：全屏预览 → 参数/历史面板 → 结果态 → 交还此处
-          if (mobileNavRef.current?.handleBack()) return;
+          if (previewRef.current !== null) {
+            setPreviewIndex(null);
+            return;
+          }
           if (showHistoryRef.current) {
             setShowHistory(false);
           } else {
@@ -232,51 +242,11 @@ export default function Home() {
     }
   }, [setResults]);
 
-  if (isMobile) {
-    return (
-      <MobileHome
-        prompt={prompt}
-        onPromptChange={setPrompt}
-        referenceImages={referenceImages}
-        onReferenceImagesChange={setReferenceImages}
-        models={models}
-        modelsLoading={modelsLoading}
-        selectedModel={effectiveModel}
-        onModelChange={setSelectedModel}
-        selectedSize={selectedSize}
-        onSizeChange={setSelectedSize}
-        selectedQuality={selectedQuality}
-        onQualityChange={setSelectedQuality}
-        selectedN={selectedN}
-        onNChange={setSelectedN}
-        refQuality={refQuality}
-        onRefQualityChange={setRefQuality}
-        compareMode={compareMode}
-        onCompareModeChange={setCompareMode}
-        modelB={modelB}
-        onModelBChange={setModelB}
-        profiles={profiles}
-        activeNodeId={activeId}
-        nodeBId={nodeB?.id ?? null}
-        onNodeBChange={setNodeBId}
-        results={results}
-        tasks={tasks}
-        onCancelTask={cancelTask}
-        onResumeTask={resumeTask}
-        onDismissTask={dismissTask}
-        onGenerate={handleGenerate}
-        error={error}
-        errorCode={errorCode}
-        onSelectHistory={handleSelectRecord}
-        onNavApi={handleNavApi}
-        onOptimizePrompt={handleOptimizePrompt}
-        optimizeLoading={optimizeLoading}
-      />
-    );
-  }
 
   return (
-    <div className="flex flex-col h-dvh bg-background">
+    /* ui-instrument：仪器面板视觉层（见 globals.css）。手机与桌面用同一套结构与背景，
+       只在触屏上额外挂一层全屏预览。 */
+    <div className="ui-instrument flex flex-col h-dvh bg-background">
       <Header onShowHistory={() => setShowHistory(true)} />
 
       {showHistory && (
@@ -287,19 +257,9 @@ export default function Home() {
       )}
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 space-y-8">
-          {/* 大标题 */}
-          <div className="text-center space-y-2 animate-fade-up">
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
-              智能生图
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              输入提示词，AI 为你创造独特的图像
-            </p>
-          </div>
-
-          {/* 一体化输入卡片 */}
-          <div className="animate-fade-up [animation-delay:60ms]">
+        <div className="mx-auto w-full max-w-[1320px] px-6 lg:px-10 pt-7">
+          {/* 一体化控制台：提示词 / 参数 / 生成 三栏 */}
+          <div className="animate-fade-up">
             <UnifiedInputCard
               prompt={prompt}
               onPromptChange={setPrompt}
@@ -335,16 +295,28 @@ export default function Home() {
             />
           </div>
 
+          {/* 状态行：本次参数的一次读数，替代原来的大标题副标 */}
+          <div className="inst-state animate-fade-up [animation-delay:60ms]">
+            <span>模型 <b>{effectiveModel}</b></span>
+            <span className="sep" aria-hidden="true" />
+            <span>{SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize}</span>
+            <span className="sep" aria-hidden="true" />
+            <span>{selectedQuality.toUpperCase()}</span>
+            <span className="sep" aria-hidden="true" />
+            <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
+            <span className="sep" aria-hidden="true" />
+            <span>节点 {activeNode?.name ?? "未配置"}</span>
+            <span className="ml-auto">提示词 {prompt.length} / {MAX_PROMPT_CHARS}</span>
+          </div>
         </div>
 
-        {/* 错误提示 + 输出图库：使用更宽容器，图片多时不会挤在窄栏里 */}
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] space-y-6">
-          {/* 错误提示（提示词被上游拒绝时，附上具体改法） */}
-          {error && (
-            <div className="animate-fade-in p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+        {/* 错误提示（提示词被上游拒绝时，附上具体改法） */}
+        {error && (
+          <div className="mx-auto w-full max-w-[1320px] px-6 lg:px-10 pt-4">
+            <div className="animate-fade-in p-3.5 rounded-[3px] bg-destructive/8 border border-destructive/35 text-destructive text-sm">
               {errorOrigin && (
                 <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium">
+                  <span className="rounded-[2px] bg-destructive/12 px-2 py-0.5 text-xs font-medium">
                     来源：{errorOrigin.label}
                   </span>
                   <span className="text-xs text-destructive/80">{errorOrigin.advice}</span>
@@ -365,14 +337,32 @@ export default function Home() {
                 </div>
               )}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* 输出图库 */}
-          <div className="animate-fade-up [animation-delay:120ms] input-card p-3 sm:p-5">
-            <ResultGrid results={results} hasRunning={loading} />
+        {/* 输出图库：直接铺在面板底色上，图自己带画框 */}
+        <div className="mx-auto w-full max-w-[1320px] px-6 lg:px-10 pt-6 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+          <div className="animate-fade-up [animation-delay:120ms]">
+            <ResultGrid
+              results={results}
+              hasRunning={loading}
+              // 触屏：点图走全屏预览（可左右滑、Capacitor 内直接存相册）
+              onPreviewRequest={isMobile ? setPreviewIndex : undefined}
+            />
           </div>
         </div>
       </main>
+
+      {/* 全屏预览层：只在触屏点图后挂载 */}
+      {isMobile && previewIndex !== null && results[previewIndex] && (
+        <FullscreenPreview
+          results={results}
+          index={previewIndex}
+          onIndexChange={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+          appMode={canSaveToGallery}
+        />
+      )}
     </div>
   );
 }

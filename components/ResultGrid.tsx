@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, FolderDown } from "lucide-react";
+import { Download, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FolderDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FadeInImage, ResultCard } from "@/components/ResultCard";
 import { isCapacitor } from "@/lib/capacitor-env";
+import { aspectOf } from "@/lib/aspect";
 import { buildResultRenderItems } from "@/lib/result-groups";
 import {
   downloadAllResults,
@@ -19,9 +20,14 @@ interface ResultGridProps {
   results: GenerateResult[];
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
+  /**
+   * 点图的处理。触屏上传入本回调走全屏预览（可左右滑、Capacitor 内直接存相册）；
+   * 不传则用内置的展开预览（桌面）。
+   */
+  onPreviewRequest?: (index: number) => void;
 }
 
-export function ResultGrid({ results, hasRunning }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
@@ -48,16 +54,15 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
 
   if (results.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground animate-fade-up">
-        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
-          <Sparkles className="w-7 h-7 text-primary" />
+      <div className="animate-fade-up rounded-[3px] border border-dashed border-[color:var(--inst-line-2)] px-6 py-16">
+        <div className="mx-auto flex max-w-md flex-col items-center text-center">
+          <span className="inst-label">{hasRunning ? "生成中" : "空图库"}</span>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {hasRunning
+              ? "任务进行中，完成后将在此展示"
+              : "写入提示词并点生成，结果会一张张落到这里"}
+          </p>
         </div>
-        <p className="text-base font-medium text-foreground">
-          {hasRunning ? "生成中…" : "开始创作"}
-        </p>
-        <p className="text-xs mt-1 text-muted-foreground/80">
-          {hasRunning ? "任务进行中，完成后将在此展示" : "在上方输入提示词，AI 将为你生成图像"}
-        </p>
       </div>
     );
   }
@@ -66,16 +71,19 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
   const renderItems = buildResultRenderItems(results);
 
   const handleExpand = (i: number) => {
+    if (onPreviewRequest) {
+      onPreviewRequest(i);
+      return;
+    }
     setExpandedIndex(expandedIndex === i ? null : i);
     setZoom(1);
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
-          输出图库 <span className="text-foreground font-medium">{results.length}</span>
-        </span>
+      <div className="flex items-center gap-3 border-b border-border/70 pb-2">
+        <span className="inst-label">输出图库</span>
+        <span className="inst-mono text-[12px] text-foreground">{results.length}</span>
         {results.length > 1 && (
           // APP 环境 `a[download]` 无处理器（点了没反应）→ 换成原生保存；
           // 浏览器/PWA 保持下载
@@ -83,28 +91,39 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
             variant="ghost"
             size="sm"
             onClick={canSaveToGallery ? handleSaveAll : handleDownloadAll}
-            className="press transition-base hover:bg-accent/60"
+            className="inst-label ml-auto h-8 px-2 transition-colors hover:text-foreground"
           >
             {canSaveToGallery ? (
-              <FolderDown className="w-4 h-4 mr-2" />
+              <FolderDown className="w-3.5 h-3.5 mr-1.5" />
             ) : (
-              <Download className="w-4 h-4 mr-2" />
+              <Download className="w-3.5 h-3.5 mr-1.5" />
             )}
             {canSaveToGallery ? "全部保存" : "全部下载"}
           </Button>
         )}
       </div>
 
-      {/* 列数随数量自适应:1 张大图居中,2~4 张 2 列,5+ 张在宽屏铺 3/4 列 */}
+      {/* 列数随数量自适应：1 张居中大图，2–3 张平铺，4 张在宽屏一行四列（仪器面板的读数行） */}
       {(() => {
         const gridCols =
           results.length === 1
             ? "grid-cols-1 max-w-2xl mx-auto"
-            : results.length <= 4
-              ? "grid-cols-2"
-              : "grid-cols-2 md:grid-cols-3 xl:grid-cols-4";
+            : results.length === 2
+              ? "grid-cols-2 max-w-3xl mx-auto"
+              : results.length === 3
+                ? "grid-cols-2 lg:grid-cols-3"
+                : "grid-cols-2 xl:grid-cols-4";
+        // 单张时按画幅反推最大宽度：竖图不能被拉到超出视口，
+        // 宽度上限 = 68dvh × 宽高比，图仍然是原比例、不裁切
+        const singleMaxW =
+          results.length === 1
+            ? `min(42rem, calc(68dvh * ${aspectOf(results[0].size) ?? 1}))`
+            : undefined;
         return (
-          <div className={`grid gap-3 ${gridCols}`}>
+          <div
+            className={`grid items-start gap-3 ${gridCols}`}
+            style={singleMaxW ? { maxWidth: singleMaxW } : undefined}
+          >
         {renderItems.map((item) => {
           if (item.type === "compare") {
             // 对比组:占整行两列,顶部横幅标 A vs B
@@ -118,7 +137,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                     ? `线路对比 · ${item.a.nodeName} vs ${item.b.nodeName}`
                     : `模型对比 · ${item.a.model} vs ${item.b.model}`}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 items-start gap-3">
                   <ResultCard
                     result={item.a}
                     index={item.indexA}
@@ -160,7 +179,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
 
       {/* 展开的完整预览 */}
       {expandedIndex !== null && (
-        <div className="rounded-xl border border-border bg-card/50 overflow-hidden animate-scale-in">
+        <div className="rounded-[3px] border border-border bg-card overflow-hidden animate-scale-in">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Button
@@ -178,8 +197,8 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
               >
                 <ChevronLeft className="w-4 h-4" />
               </Button>
-              <span className="text-sm text-muted-foreground tabular-nums">
-                {expandedIndex + 1} / {results.length}
+              <span className="inst-mono text-[12px] text-muted-foreground tabular-nums">
+                {String(expandedIndex + 1).padStart(2, "0")} / {String(results.length).padStart(2, "0")}
               </span>
               <Button
                 variant="ghost"
@@ -197,7 +216,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
                 <ChevronRight className="w-4 h-4" />
               </Button>
               {/* 生成渠道信息：与结果卡/移动端全屏保持一致 */}
-              <span className="ml-1 max-w-64 truncate text-xs text-muted-foreground">
+              <span className="inst-mono ml-1 max-w-64 truncate text-[12px] text-muted-foreground">
                 {results[expandedIndex].nodeName ? `${results[expandedIndex].nodeName} · ` : ""}
                 {results[expandedIndex].model}
                 {results[expandedIndex].size && results[expandedIndex].size !== "auto"
@@ -207,7 +226,7 @@ export function ResultGrid({ results, hasRunning }: ResultGridProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+              <div className="flex items-center gap-1 bg-[color:var(--inst-sunken)] rounded-[2px] p-1">
                 <Button
                   variant="ghost"
                   size="icon"

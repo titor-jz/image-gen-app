@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Upload, X, Image as ImageIcon, Eraser, AtSign, Sparkles, GitCompare, Server, Wand2, Loader2 } from "lucide-react";
+import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { PromptGuide } from "@/components/PromptGuide";
@@ -122,7 +122,7 @@ export function UnifiedInputCard({
   // 优化后文本会变长，输入框跟着长高（超过 240px 转内部滚动）
   useAutoGrowTextarea(textareaRef, prompt, 240);
 
-  // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，移动端 ParamSheet 复用）
+  // 对比模式跨节点：B 侧节点的模型列表按需拉取（hook 抽取，便于单独复用）
   const nodeBProfile = profiles.find((p) => p.id === nodeBId) ?? null;
   const { modelsB, isCrossNode } = useNodeBModels({
     compareMode,
@@ -231,9 +231,11 @@ export function UnifiedInputCard({
 
   const isFull = referenceImages.length >= MAX_COUNT;
 
+  const sizeLabel = SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize;
+
   return (
     <div
-      className={`input-card relative p-0 overflow-hidden transition-slow hover:shadow-xl ${cardDragOver ? "ring-2 ring-primary/50" : ""}`}
+      className={`input-card relative overflow-hidden transition-slow ${cardDragOver ? "ring-2 ring-[color:var(--inst-accent)]" : ""}`}
       // 整卡拖放：只接管文件拖拽（types 含 Files），文字拖入文本框不受影响
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
@@ -252,252 +254,338 @@ export function UnifiedInputCard({
       }}
     >
       {cardDragOver && (
-        <div className="absolute inset-x-0 top-0 z-30 bg-primary/90 text-primary-foreground text-xs text-center py-1.5 pointer-events-none animate-fade-in">
+        <div className="absolute inset-x-0 top-0 z-30 bg-[color:var(--inst-accent)] text-white text-xs text-center py-1.5 pointer-events-none animate-fade-in">
           松开鼠标，添加为参考图
         </div>
       )}
-      {/* 上半部分：提示词输入 + 参考图 */}
-      <div className="p-5 pb-3">
-        {/* 参考图缩略图行 */}
-        {referenceImages.length > 0 && (
-          <div className="flex flex-wrap gap-3 mb-3">
+
+      {/* 三栏控制台：提示词 | 参数 | 生成。窄屏纵向堆叠。 */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_396px_172px]">
+
+        {/* ── 1 · 提示词 ── */}
+        <div className="p-5">
+          <div className="mb-2 flex items-baseline gap-2.5">
+            <span className="inst-label">提示词</span>
+            <span
+              className={`inst-mono text-[12px] ${
+                prompt.length > MAX_PROMPT_CHARS * 0.9 ? "text-amber-600" : "text-muted-foreground"
+              }`}
+            >
+              {prompt.length} / {MAX_PROMPT_CHARS}
+            </span>
+            {/* 提示词优化：走节点上游的对话模型改写（消耗少量额度）；连点可换一版，撤销在 toast 里 */}
+            <button
+              type="button"
+              onClick={onOptimizePrompt}
+              disabled={!prompt.trim() || optimizeLoading}
+              title="用节点上游的对话模型改写提示词（消耗少量额度）"
+              className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-[2px] px-1 font-[family-name:var(--inst-mono)] text-[12px] tracking-[0.08em] text-[color:var(--inst-accent)] transition-colors hover:text-foreground disabled:opacity-40 disabled:hover:text-[color:var(--inst-accent)]"
+            >
+              {optimizeLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5" />
+              )}
+              {optimizeLoading ? "优化中…" : "优化提示词"}
+            </button>
+          </div>
+
+          {/* 提示词输入 */}
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={handlePromptChange}
+              onKeyDown={handlePromptKeyDown}
+              onPaste={handlePaste}
+              placeholder="在此处拖入图片，并写入提示词"
+              /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
+              className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
+              maxLength={MAX_PROMPT_CHARS}
+              rows={4}
+            />
+            {prompt && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-0 right-0 w-7 h-7 press transition-base"
+                onClick={() => onPromptChange("")}
+                aria-label="清空"
+              >
+                <Eraser className="w-3.5 h-3.5 text-muted-foreground" />
+              </Button>
+            )}
+          </div>
+
+          {/* 参考图行：缩略图 + 添加入口 + 压缩档位（从工具栏移到这里，语义归位） */}
+          <div className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-dashed border-border/70 pt-3">
             {referenceImages.map((img, i) => (
               <div
                 key={img.id}
-                className="flex flex-col items-center gap-1 animate-fade-up"
+                className="animate-fade-up flex flex-col items-center gap-1"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 {/* 外层不裁剪，删除按钮悬浮在缩略图右上角才能完整显示 */}
                 <div className="relative group">
-                  <div className="w-14 h-14 rounded-lg overflow-hidden border border-border/50 transition-base hover:border-border">
-                    <img src={img.base64} alt={img.name} className="w-full h-full object-cover transition-slow group-hover:scale-110" />
+                  <div className="h-14 w-11 overflow-hidden rounded-[2px] border border-[color:var(--inst-line-2)] transition-base hover:border-foreground">
+                    <img
+                      src={img.base64}
+                      alt={img.name}
+                      className="h-full w-full object-cover transition-slow group-hover:scale-110"
+                    />
                   </div>
-                  {/* 常驻显示的删除按钮：深底白叉 + 背景色描边，任何图片上都清晰可见 */}
                   <button
                     type="button"
-                    className="absolute -top-2 -right-2 sm:-top-1.5 sm:-right-1.5 w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-destructive text-white flex items-center justify-center shadow-md ring-2 ring-background press-sm transition-base hover:bg-destructive/90 hover:scale-110"
+                    className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-md ring-2 ring-background transition-base hover:bg-destructive/90 sm:-top-1.5 sm:-right-1.5"
                     onClick={() => removeImage(img.id)}
                     aria-label={`删除 ${img.name}`}
                   >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
-                <span className="text-xs text-muted-foreground truncate max-w-14" title={img.name}>{img.name}</span>
+                <span className="max-w-14 truncate text-xs text-muted-foreground" title={img.name}>
+                  {img.name}
+                </span>
               </div>
             ))}
+
             {!isFull && (
-              <div onDrop={handleDrop} onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-                onPaste={handlePaste} tabIndex={0}
-                className={`w-14 h-14 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer transition-base
-                  ${isDragging ? "border-primary bg-primary/10 scale-105" : "border-border/50 hover:border-primary/50 hover:bg-accent/30"}`}
-                onClick={() => fileInputRef.current?.click()}>
-                <ImageIcon className="w-4 h-4 text-muted-foreground" />
+              <>
+                <button
+                  type="button"
+                  onDrop={handleDrop}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                  onPaste={handlePaste}
+                  className={`flex h-14 w-11 items-center justify-center rounded-[2px] border border-dashed transition-base ${
+                    isDragging
+                      ? "border-[color:var(--inst-accent)] bg-[color:var(--inst-accent-weak)]"
+                      : "border-[color:var(--inst-line-2)] hover:border-foreground"
+                  }`}
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="添加参考图"
+                >
+                  <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </>
+            )}
+
+            {/* 参考图清晰度：自动/高清/原图（选择持久化到用户设置） */}
+            <SelectChip
+              value={refQuality}
+              onChange={onRefQualityChange}
+              options={[
+                { value: "auto", label: "自动压缩" },
+                { value: "hd", label: "高清压缩" },
+                { value: "original", label: "原图直传" },
+              ]}
+            />
+
+            <span className="inst-label ml-auto hidden xl:inline">
+              {referenceImages.length > 0
+                ? `${referenceImages.length} / ${MAX_COUNT} 张参考`
+                : "拖入或 ⌘V 粘贴"}
+            </span>
+          </div>
+
+          {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
+        </div>
+
+        {/* ── 2 · 参数 ── */}
+        <div className="border-t border-border/70 p-5 lg:border-t-0 lg:border-l">
+          <div className="flex flex-col gap-3.5">
+            {/* 张数：四个刻度位，当前值点亮仪器橙 */}
+            <div className="flex items-center gap-3">
+              <span className="inst-label w-9 shrink-0">张数</span>
+              <div className="flex gap-2">
+                {COUNTS.map((c) => {
+                  const n = Number(c.value) as 1 | 2 | 3 | 4;
+                  const on = !compareMode && selectedN === n;
+                  return (
+                    <button
+                      key={c.value}
+                      type="button"
+                      className="inst-dot"
+                      data-on={on}
+                      disabled={compareMode}
+                      onClick={() => onNChange(n)}
+                      aria-pressed={on}
+                      title={compareMode ? "对比模式下每个模型固定 1 张" : `${n} 张`}
+                    >
+                      {c.value}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 画幅 + 质量 */}
+            <div className="flex items-center gap-3">
+              <span className="inst-label w-9 shrink-0">画幅</span>
+              <SelectChip value={selectedSize} onChange={onSizeChange} options={SIZES} />
+              <span className="inst-label shrink-0">质量</span>
+              <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
+            </div>
+
+            {/* 模型 */}
+            <div className="flex items-center gap-3">
+              <span className="inst-label w-9 shrink-0">模型</span>
+              <div className="min-w-0 flex-1">
+                {/* 节点切换后加载中显示提示，避免误用旧节点模型列表 */}
+                <SelectChip
+                  value={selectedModel}
+                  onChange={onModelChange}
+                  options={models.map((m) => ({ value: m.id, label: m.name }))}
+                  displayLabel={modelsLoading && models.length === 0 ? "模型加载中…" : undefined}
+                />
+              </div>
+            </div>
+
+            {/* 对比开关 */}
+            <div className="flex items-center gap-3">
+              <span className="inst-label w-9 shrink-0">对比</span>
+              <button
+                type="button"
+                className="inst-toggle"
+                data-on={compareMode}
+                onClick={() => onCompareModeChange(!compareMode)}
+                aria-pressed={compareMode}
+              >
+                <i className="pip" />
+                {compareMode ? "已开启" : "关闭"}
+              </button>
+
+              {/* 跨节点对比时的提示徽标：B 侧走独立线路 */}
+              {compareMode && isCrossNode && nodeBProfile && (
+                <span
+                  className="inst-label flex min-w-0 items-center gap-1 text-foreground"
+                  title={`对比线路 B：${nodeBProfile.baseUrl}`}
+                >
+                  <Server className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{nodeBProfile.name || "未命名节点"}</span>
+                </span>
+              )}
+            </div>
+
+            {/* 对比模式：B 模型 / B 节点（跨线路对比） */}
+            {compareMode && (
+              <div className="flex flex-col gap-3 border-t border-dashed border-border/70 pt-3">
+                <div className="flex items-center gap-3">
+                  <span className="inst-label w-9 shrink-0">B 模型</span>
+                  <div className="min-w-0 flex-1">
+                    {/* 跨节点时列表来自节点 B 的 /api/models */}
+                    <SelectChip
+                      value={modelBOptions.some((m) => m.id === modelB) ? modelB : (modelBOptions[0]?.id ?? "")}
+                      onChange={onModelBChange}
+                      options={modelBOptions.map((m) => ({ value: m.id, label: m.name }))}
+                    />
+                  </div>
+                </div>
+                {profiles.length > 1 && (
+                  <div className="flex items-center gap-3">
+                    <span className="inst-label w-9 shrink-0">B 线路</span>
+                    <div className="min-w-0 flex-1">
+                      <SelectChip
+                        value={nodeBId ?? activeNodeId}
+                        onChange={(id) => onNodeBChange(id === activeNodeId ? null : id)}
+                        options={[
+                          { value: activeNodeId, label: "同当前节点" },
+                          ...profiles
+                            .filter((p) => p.id !== activeNodeId)
+                            .map((p) => ({ value: p.id, label: p.name || "未命名节点" })),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-
-        {/* 提示词输入 */}
-        <div className="relative">
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={handlePromptChange}
-            onKeyDown={handlePromptKeyDown}
-            onPaste={handlePaste}
-            placeholder="在此处拖入图片，并写入提示词"
-            /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
-            className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
-            maxLength={MAX_PROMPT_CHARS}
-            rows={4}
-          />
-          {prompt && (
-            <Button variant="ghost" size="icon" className="absolute top-0 right-0 w-7 h-7 press transition-base hover:bg-accent/60" onClick={() => onPromptChange("")} aria-label="清空">
-              <Eraser className="w-3.5 h-3.5 text-muted-foreground" />
-            </Button>
-          )}
         </div>
 
-        {/* 元信息行：字数/须知在左，优化在右——不额外占一行高度 */}
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className={
-                prompt.length > MAX_PROMPT_CHARS * 0.9
-                  ? "text-amber-500 tabular-nums"
-                  : "text-muted-foreground tabular-nums"
-              }
+        {/* ── 3 · 生成 ── */}
+        <div className="flex flex-col justify-between gap-4 border-t border-border/70 bg-[color:var(--inst-sunken)] p-5 lg:border-t-0 lg:border-l">
+          <div>
+            <div className="inst-label">本次</div>
+            <div className="mt-1.5 inst-mono text-[15px] leading-relaxed text-foreground">
+              {compareMode ? "2 张（对比）" : `${selectedN} 张`}
+            </div>
+            <div className="mt-0.5 inst-mono text-[12px] text-muted-foreground">
+              {selectedQuality.toUpperCase()} · {sizeLabel}
+            </div>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={!prompt.trim()}
+              className="btn-go"
             >
-              {prompt.length} / {MAX_PROMPT_CHARS}
-            </span>
+              生成
+            </button>
             <button
               type="button"
               onClick={() => setShowGuide((v) => !v)}
-              className="text-muted-foreground press transition-base hover:text-foreground"
+              className="inst-label mt-2 flex h-8 w-full items-center justify-center transition-colors hover:text-foreground"
               aria-expanded={showGuide}
             >
               {showGuide ? "收起须知" : "创作须知"}
             </button>
           </div>
-
-          {/* 提示词优化：走节点上游的对话模型改写（消耗少量额度）；连点可换一版，撤销在 toast 里 */}
-          <button
-            type="button"
-            onClick={onOptimizePrompt}
-            disabled={!prompt.trim() || optimizeLoading}
-            title="用节点上游的对话模型改写提示词（消耗少量额度）"
-            className="toolbar-chip press justify-center min-w-[5.5rem] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/50 disabled:hover:border-border/50 disabled:hover:shadow-none"
-          >
-            {optimizeLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Wand2 className="w-3.5 h-3.5" />
-            )}
-            {optimizeLoading ? "优化中…" : "优化提示词"}
-          </button>
         </div>
-
-        {showGuide && <PromptGuide className="mt-2 animate-fade-in" />}
-
-        {/* @ 提及建议：portal 到 body + fixed 定位，避免被卡片 overflow-hidden 裁剪导致图片多时看不到 */}
-        {showMentions && filteredMentions.length > 0 && mentionRect && createPortal(
-          <div
-            className="fixed z-[60] rounded-xl border border-border bg-popover shadow-xl overflow-hidden animate-fade-up"
-            style={{ top: mentionRect.top, left: mentionRect.left, width: mentionRect.width }}
-          >
-            <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border flex items-center gap-1.5">
-              <AtSign className="w-3 h-3" /> 选择参考图片（{filteredMentions.length} 张）
-            </div>
-            <div className="max-h-64 overflow-y-auto scrollbar-thin">
-              {filteredMentions.map((img, idx) => (
-                <button key={img.id}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
-                  onClick={() => insertMention(img)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
-                  <img src={img.base64} alt={img.name} className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-border/50" />
-                  <span className="truncate flex-1">{img.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>,
-          document.body
-        )}
-
-        {imgError && <p className="text-xs text-destructive mt-1 animate-fade-in">{imgError}</p>}
       </div>
 
-      {/* 下半部分：参数工具栏。小屏纵向堆叠：chips 换行铺满，生成按钮整行置底（拇指易达） */}
-      <div className="flex flex-col gap-2 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border/50 bg-background/30 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 flex-wrap w-full">
-          {/* 添加图片按钮 */}
-          {!isFull && (
-            <Button variant="ghost" size="icon" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full press transition-base hover:bg-accent/60" onClick={() => fileInputRef.current?.click()} aria-label="添加图片">
-              <Upload className="w-4 h-4" />
-            </Button>
-          )}
-          <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES.join(",")} multiple className="hidden"
-            onChange={(e) => { const files = Array.from(e.target.files || []); const remaining = MAX_COUNT - referenceImages.length; for (const file of files.slice(0, remaining)) processFile(file); e.target.value = ""; }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPTED_TYPES.join(",")}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          const remaining = MAX_COUNT - referenceImages.length;
+          for (const file of files.slice(0, remaining)) processFile(file);
+          e.target.value = "";
+        }}
+      />
 
-          {/* 参考图清晰度：自动/高清/原图（选择持久化到用户设置） */}
-          <SelectChip
-            value={refQuality}
-            onChange={onRefQualityChange}
-            options={[
-              { value: "auto", label: "自动压缩" },
-              { value: "hd", label: "高清压缩" },
-              { value: "original", label: "原图直传" },
-            ]}
-          />
-
-          {/* 模型选择（节点切换后加载中显示提示，避免误用旧节点模型列表） */}
-          <SelectChip
-            value={selectedModel}
-            onChange={onModelChange}
-            options={models.map((m) => ({ value: m.id, label: m.name }))}
-            displayLabel={modelsLoading && models.length === 0 ? "模型加载中…" : undefined}
-          />
-
-          {/* 对比开关:复用 toolbar-chip 保持圆角统一,激活态用 toolbar-chip-active */}
-          <button
-            type="button"
-            className={`toolbar-chip press ${compareMode ? "toolbar-chip-active" : ""}`}
-            onClick={() => onCompareModeChange(!compareMode)}
-            aria-pressed={compareMode}
-          >
-            <GitCompare className="w-3.5 h-3.5" />
-            对比
-          </button>
-
-          {/* 跨节点对比时的提示徽标:B 侧走独立线路 */}
-          {compareMode && isCrossNode && nodeBProfile && (
-            <span
-              className="toolbar-chip toolbar-chip-active gap-1"
-              title={`对比线路 B:${nodeBProfile.baseUrl}`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              {nodeBProfile.name || "未命名节点"}
-            </span>
-          )}
-
-          {/* 模型 B 选择:仅对比模式显示,前缀 B 与结果横幅的 A vs B 对应;
-              跨节点时列表来自节点 B 的 /api/models */}
-          {compareMode && (
-            <SelectChip
-              value={modelBOptions.some((m) => m.id === modelB) ? modelB : (modelBOptions[0]?.id ?? "")}
-              onChange={onModelBChange}
-              options={modelBOptions.map((m) => ({ value: m.id, label: `B: ${m.name}` }))}
-            />
-          )}
-
-          {/* 节点 B 选择:仅对比模式显示,选了不同节点即为跨线路对比;默认「同当前节点」 */}
-          {compareMode && profiles.length > 1 && (
-            <SelectChip
-              value={nodeBId ?? activeNodeId}
-              onChange={(id) => onNodeBChange(id === activeNodeId ? null : id)}
-              options={[
-                { value: activeNodeId, label: "B: 同当前节点" },
-                ...profiles
-                  .filter((p) => p.id !== activeNodeId)
-                  .map((p) => ({ value: p.id, label: `B: ${p.name || "未命名节点"}` })),
-              ]}
-            />
-          )}
-
-          {/* 比例选择 */}
-          <SelectChip value={selectedSize} onChange={onSizeChange} options={SIZES} />
-
-          {/* 清晰度 */}
-          <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
-
-          {/* 生成数量：第 4 个 chip,对比模式隐藏(对比固定每模型1张) */}
-          {!compareMode && (
-            <SelectChip
-              value={String(selectedN)}
-              onChange={(v) => onNChange(Number(v) as 1 | 2 | 3 | 4)}
-              options={COUNTS}
-            />
-          )}
+      {/* 创作须知：展开后横跨整块面板 */}
+      {showGuide && (
+        <div className="animate-fade-in border-t border-border/70 px-5 py-4">
+          <PromptGuide />
         </div>
+      )}
 
-        {/* 右侧：生成按钮（常驻可用，不再因 loading 切换成取消） */}
-        <Button
-          onClick={onGenerate}
-          disabled={!prompt.trim()}
-          className="h-11 w-full sm:w-auto sm:h-9 px-5 gap-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 press transition-base shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-primary"
+      {/* @ 提及建议：portal 到 body + fixed 定位，避免被卡片 overflow-hidden 裁剪导致图片多时看不到 */}
+      {showMentions && filteredMentions.length > 0 && mentionRect && createPortal(
+        <div
+          className="fixed z-[60] overflow-hidden rounded-[3px] border border-border bg-popover shadow-xl animate-fade-up"
+          style={{ top: mentionRect.top, left: mentionRect.left, width: mentionRect.width }}
         >
-          <span className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4" />
-            生成
-          </span>
-        </Button>
-      </div>
+          <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-border flex items-center gap-1.5">
+            <AtSign className="w-3 h-3" /> 选择参考图片（{filteredMentions.length} 张）
+          </div>
+          <div className="max-h-64 overflow-y-auto scrollbar-thin">
+            {filteredMentions.map((img, idx) => (
+              <button key={img.id}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
+                onClick={() => insertMention(img)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
+                <img src={img.base64} alt={img.name} className="w-9 h-9 rounded-[2px] object-cover flex-shrink-0 border border-border/60" />
+                <span className="truncate flex-1">{img.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
 
       <TaskList
         tasks={tasks}
         onCancelTask={onCancelTask}
         onResumeTask={onResumeTask}
         onDismissTask={onDismissTask}
-        className="px-4 pb-3"
+        className="border-t border-border/70 px-5 py-3"
       />
 
     </div>
