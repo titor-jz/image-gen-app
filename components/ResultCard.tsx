@@ -131,6 +131,12 @@ export function ResultCard({
         // 也只留边、不裁掉画面内容
         className="w-full h-full object-contain transition-slow group-hover:scale-105"
       />
+      {/* 动图标记：GIF 结果静图看不出来，左上角常驻标识 */}
+      {result.mime === "image/gif" && (
+        <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[10px] leading-4 font-medium tracking-wide text-white/90">
+          GIF
+        </span>
+      )}
       {/* 生成渠道信息：常驻显示（触屏没有 hover，之前只在对比组/鼠标悬停时可见）。
           pointer-events-none 避免挡住整卡点击。 */}
       <span className="result-card-tag pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">

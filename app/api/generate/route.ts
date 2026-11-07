@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FormData as UndiciFormData } from "undici";
-import { httpRequest, httpFormDataRequest, httpJsonPost } from "@/lib/http-client";
+import { httpRequest, httpFormDataRequest, httpJsonPost, createFormData } from "@/lib/http-client";
 import { errorResponse } from "@/lib/error-messages";
 import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { upstreamErrorHint } from "@/lib/upstream-errors";
+
+/** 按魔数嗅探图片 MIME：2.6 等模型可返回动图 GIF，写死 image/png 会让下载后缀与展示出错 */
+function sniffImageMime(b64: string): string {
+  const bytes = Buffer.from(b64, "base64").subarray(0, 12);
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif"; // "GIF8"
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) return "image/png";
+  if (bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  return "image/png";
+}
 
 // gpt-image-2 支持的尺寸
 // 2K 档(默认):适合快速出图
@@ -101,8 +110,8 @@ export async function POST(request: NextRequest) {
 
     const url = `${baseURL}/images/generations/async`;
     const syncUrl = `${baseURL}/images/generations`;
-    // 用 undici 的 FormData（与 http-client 的 RequestInit 类型对齐）
-    const form = new UndiciFormData();
+    // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
+    const form = createFormData();
     form.append("model", model);
     form.append("prompt", prompt);
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
@@ -136,7 +145,7 @@ export async function POST(request: NextRequest) {
         console.log("[generate] 上游无异步端点, 回落同步端点");
         if (imageFiles.length > 0) {
           console.log("[generate] 图生图 → /images/edits");
-          const editForm = new UndiciFormData();
+          const editForm = createFormData();
           editForm.append("model", model);
           editForm.append("prompt", prompt);
           editForm.append("size", sizeMap[size] || "auto");
@@ -248,7 +257,7 @@ export async function POST(request: NextRequest) {
       }
       if (b64Json) {
         return NextResponse.json({
-          images: [{ b64_json: b64Json, mime: "image/png" }],
+          images: [{ b64_json: b64Json, mime: sniffImageMime(b64Json) }],
         });
       }
     }

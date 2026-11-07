@@ -4,6 +4,11 @@
   "name": "image-gen-app",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // 自定义域名绑到 Worker（custom_domain 需要该 zone 已在 Cloudflare 账号里；
+  // deploy 时 wrangler 会自动建 DNS 记录与证书）
+  "routes": [
+    { "pattern": "ineedjz.us.ci", "custom_domain": true }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

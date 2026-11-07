@@ -33,7 +33,8 @@ npm run deploy:cf      # Cloudflare 部署
 - **服务端不存任何数据**。API Key / Base URL / 代理在浏览器 localStorage，经 `x-api-key` / `x-base-url` / `x-proxy-url` 头透传（`lib/api-headers.ts`）。新增 API 路由也必须走透传模式，不得引入服务端存储。
 - **提示词优化是独立接口配置**：设置里「提示词优化接口」自己填 Base URL / Key / 模型 / 代理（`image-gen-optimize-config`），不占用生图节点列表，也不需要「启用」；留空时才回落到当前生图节点。`/api/optimize` 自动挑对话模型（`/models` 为空时按常见型号探测），失败保留原文、不静默降级。
 - **历史图存 IndexedDB**（`lib/db.ts`，用 `idb`）；设置存 localStorage（`lib/user-settings.ts`）。
-- **上游 HTTP 统一走 `lib/http-client.ts`**（undici，为支持 ProxyAgent 代理），不要换成全局 fetch。
+- **上游 HTTP 统一走 `lib/http-client.ts`**（双运行时自适应：Node/Vercel 用 undici——连接池 + ProxyAgent 代理；Cloudflare Workers 用全局 fetch，`proxyUrl` 在该运行时被忽略），不要绕过它自行选 fetch 实现。
+- **动图支持**：gpt-image-2.6 可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。
 - 任务编排（并发、单张取消、指数退避轮询）在 `hooks/useImageGeneration.ts`；多节点/模型状态在 `lib/api-config-context.tsx`。
 
