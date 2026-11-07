@@ -42,6 +42,9 @@ export interface HistoryRecord {
   createdAt: number;
 }
 
+/** 输出格式：static=静图（默认）；gif=动图（仅 gpt-image ≥2.6 支持） */
+export type OutputFormat = "static" | "gif";
+
 export interface AppSettings {
   apiKey: string;
   defaultModel: ModelId;
@@ -52,6 +55,8 @@ export interface AppSettings {
   defaultN?: 1 | 2 | 3 | 4;
   /** 参考图清晰度模式（自动/高清/原图），未配置时按 auto 处理 */
   refQuality?: "auto" | "hd" | "original";
+  /** 输出格式偏好，未配置时按 static 处理 */
+  defaultOutputFormat?: OutputFormat;
 }
 
 /**

@@ -10,12 +10,11 @@
  * HttpResult 契约对两种运行时完全一致，调用方无感知。
  */
 
-// workerd 运行时检测：不依赖全局类型声明（新版 TS 的 lib.dom 不一定可见
-// WorkerGlobalScope），用结构化读取 + instanceof，Node 上两个条件都为假
-const globalWithWGS = globalThis as { WorkerGlobalScope?: new () => object };
+// workerd 运行时检测：workerd 不暴露 WorkerGlobalScope 构造器（浏览器才有，
+// typeof/instanceof 检测在部署后恒为假，会误走 undici 分支报 MessagePort 错），
+// 用 navigator.userAgent 的官方标识判断——Node 里没有 navigator，同样恒为假
 const IS_WORKERS =
-  typeof globalWithWGS.WorkerGlobalScope === "function" &&
-  globalThis instanceof globalWithWGS.WorkerGlobalScope;
+  typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
 // 上游请求超时：默认对齐 Vercel maxDuration（60s，见 vercel.json）。
 // 本地/自托管部署可用环境变量放宽（如 GEN_TIMEOUT_MS=300000），

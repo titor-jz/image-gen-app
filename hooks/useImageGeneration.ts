@@ -41,6 +41,7 @@ import type {
   GenTask,
   HistoryRecord,
   ModelId,
+  OutputFormat,
 } from "@/lib/types";
 import type { Quality, ReferenceImage } from "@/components/UnifiedInputCard";
 
@@ -82,6 +83,8 @@ export interface UseImageGenerationOptions {
   } | null;
   /** 参考图清晰度模式（生成时持久化到用户设置） */
   refQuality?: "auto" | "hd" | "original";
+  /** 输出格式（static=静图 / gif=动图）；gif 时服务端会在提示词前注入动图指令 */
+  outputFormat?: OutputFormat;
 }
 
 export interface UseImageGenerationResult {
@@ -202,7 +205,7 @@ export function useImageGeneration(
 ): UseImageGenerationResult {
   const {
     prompt, referenceImages, model, size, quality, n, compareMode, modelB,
-    activeNodeId, activeNodeName, nodeB, refQuality,
+    activeNodeId, activeNodeName, nodeB, refQuality, outputFormat,
   } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
@@ -594,6 +597,8 @@ export function useImageGeneration(
           formData.append("model", task.model);
           formData.append("size", size);
           formData.append("quality", quality);
+          // 输出格式：gif 时服务端注入动图指令（gpt-image 2.6 的动图由提示词驱动）
+          formData.append("format", outputFormat ?? "static");
           // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
           formData.append("n", "1");
           for (const blob of refBlobs) {
@@ -753,6 +758,7 @@ export function useImageGeneration(
           defaultQuality: quality,
           defaultN: n,
           refQuality,
+          defaultOutputFormat: outputFormat ?? "static",
         });
       }
     } finally {
@@ -771,6 +777,7 @@ export function useImageGeneration(
     activeNodeName,
     nodeB,
     refQuality,
+    outputFormat,
     baseUrl,
     proxyUrl,
     updateTask,

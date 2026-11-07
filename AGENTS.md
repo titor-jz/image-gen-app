@@ -34,12 +34,13 @@ npm run deploy:cf      # Cloudflare 部署
 - **提示词优化是独立接口配置**：设置里「提示词优化接口」自己填 Base URL / Key / 模型 / 代理（`image-gen-optimize-config`），不占用生图节点列表，也不需要「启用」；留空时才回落到当前生图节点。`/api/optimize` 自动挑对话模型（`/models` 为空时按常见型号探测），失败保留原文、不静默降级。
 - **历史图存 IndexedDB**（`lib/db.ts`，用 `idb`）；设置存 localStorage（`lib/user-settings.ts`）。
 - **上游 HTTP 统一走 `lib/http-client.ts`**（双运行时自适应：Node/Vercel 用 undici——连接池 + ProxyAgent 代理；Cloudflare Workers 用全局 fetch，`proxyUrl` 在该运行时被忽略），不要绕过它自行选 fetch 实现。
-- **动图支持**：gpt-image-2.6 可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。
+- **动图支持**：gpt-image-2.6 可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。动图由提示词驱动：UI「格式」选 GIF 后模型下拉只留 ≥2.6 型号（`supportsAnimation`），且服务端在提示词前注入「生成无缝循环的GIF动图：」指令（`format` 字段，历史/回填仍存用户原文）。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。
 - 任务编排（并发、单张取消、指数退避轮询）在 `hooks/useImageGeneration.ts`；多节点/模型状态在 `lib/api-config-context.tsx`。
 
 ## 已知坑
 
+- **Workers 运行时检测勿用 `WorkerGlobalScope`**：workerd 不暴露该构造器（浏览器才有），typeof/instanceof 检测部署后恒为假，http-client 会误走 undici 分支报 `MessagePort is not defined`。用 `navigator.userAgent === "Cloudflare-Workers"`（http-client.ts 的 `IS_WORKERS`）。注意 `/api/models` 失败会静默回落兜底模型列表，测不出这类崩溃——验证上游调用要看 `/api/generate`。
 - **禁止在 Vercel/CF 公开部署的环境变量里配 `OPENAI_API_KEY`**：客户端未带 `x-api-key` 时路由会回落到服务端环境变量，等于把额度开放给所有访问者。且 BYO 端点架构本身即开放中继（`x-base-url` 可指向任意上游），公开部署需自行加鉴权/限流。
 - `scripts/**` 运行在 Node CommonJS 上下文，必须用 `require()`（已在 eslint 中豁免 no-require-imports），不要改成 ESM。
 - Vercel serverless 请求体上限约 4.5MB，大参考图可能被平台直接拒。

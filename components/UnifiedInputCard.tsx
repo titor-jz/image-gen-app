@@ -11,7 +11,7 @@ import { ACCEPTED_TYPES, validateAndCompress, toVerifiedDataUrl, type RefQuality
 import { useNodeBModels } from "@/hooks/useNodeBModels";
 import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { TaskList } from "@/components/TaskList";
-import type { AspectRatio, GenTask, ModelInfo } from "@/lib/types";
+import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
 
 export interface ReferenceImage {
@@ -29,6 +29,9 @@ interface UnifiedInputCardProps {
   prompt: string;
   onPromptChange: (v: string) => void;
   referenceImages: ReferenceImage[];
+  /** 输出格式（static=静图 / gif=动图）；gif 时仅列出支持动图的模型，且服务端注入动图指令 */
+  outputFormat: OutputFormat;
+  onOutputFormatChange: (f: OutputFormat) => void;
   /** 参考图清晰度模式：自动压缩 / 高清压缩 / 原图直传（选择持久化） */
   refQuality: RefQuality;
   onRefQualityChange: (q: RefQuality) => void;
@@ -80,6 +83,19 @@ export const SIZES: { value: AspectRatio; label: string }[] = [
   { value: "4:3", label: "4:3" },
   { value: "3:4", label: "3:4" },
 ];
+
+/** 输出格式选项：动图仅 gpt-image ≥2.6 支持（服务端会注入动图指令） */
+export const OUTPUT_FORMATS: { value: OutputFormat; label: string }[] = [
+  { value: "static", label: "静图" },
+  { value: "gif", label: "GIF 动图" },
+];
+
+/** gpt-image 型号 ≥2.6 才支持动图输出；非 gpt-image 系一律按静图处理 */
+function supportsAnimation(modelId: string): boolean {
+  const m = /gpt-image-(\d+)(?:\.(\d+))?/i.exec(modelId);
+  if (!m) return false;
+  return Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2] ?? 0) >= 6);
+}
 export const QUALITIES: { value: Quality; label: string }[] = [
   { value: "1k", label: "1K" },
   { value: "2k", label: "2K" },
@@ -100,6 +116,7 @@ export function UnifiedInputCard({
   models, modelsLoading, selectedModel, onModelChange, selectedSize, onSizeChange,
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
+  outputFormat, onOutputFormatChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
   tasks, onCancelTask, onResumeTask, onDismissTask,
@@ -132,6 +149,24 @@ export function UnifiedInputCard({
     onModelBChange,
   });
   const modelBOptions = isCrossNode && modelsB ? modelsB : models;
+
+  // 动图模式：模型列表只留支持动图的型号；没有任何支持型号时回退全量（避免死下拉）
+  const animatedModels = models.filter((m) => supportsAnimation(m.id));
+  const gifCapable = outputFormat === "gif" && animatedModels.length > 0;
+  const selectableModels = gifCapable ? animatedModels : models;
+  const selectableModelB = gifCapable
+    ? modelBOptions.filter((m) => supportsAnimation(m.id)).length > 0
+      ? modelBOptions.filter((m) => supportsAnimation(m.id))
+      : modelBOptions
+    : modelBOptions;
+
+  // 切到动图且当前模型不支持时，自动切到第一个支持动图的型号
+  useEffect(() => {
+    if (!gifCapable) return;
+    if (selectableModels.some((m) => m.id === selectedModel)) return;
+    if (modelsLoading && models.length === 0) return;
+    if (selectableModels.length) onModelChange(selectableModels[0].id);
+  }, [gifCapable, selectableModels, selectedModel, onModelChange, modelsLoading, models.length]);
 
   // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随。
   // 初始定位/复位经 rAF 异步执行，避免在 effect 体内同步 setState（级联渲染）
@@ -427,6 +462,17 @@ export function UnifiedInputCard({
               <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
             </div>
 
+            {/* 输出格式：动图仅 2.6 系支持，选中后模型下拉只留可动图的型号 */}
+            <div className="flex items-center gap-3">
+              <span className="inst-label w-9 shrink-0">格式</span>
+              <SelectChip value={outputFormat} onChange={onOutputFormatChange} options={OUTPUT_FORMATS} />
+              {outputFormat === "gif" && (
+                <span className="inst-label text-muted-foreground" title="服务端会自动在提示词前加动图指令，历史里仍保留你的原文">
+                  自动加动图指令
+                </span>
+              )}
+            </div>
+
             {/* 模型 */}
             <div className="flex items-center gap-3">
               <span className="inst-label w-9 shrink-0">模型</span>
@@ -435,7 +481,7 @@ export function UnifiedInputCard({
                 <SelectChip
                   value={selectedModel}
                   onChange={onModelChange}
-                  options={models.map((m) => ({ value: m.id, label: m.name }))}
+                  options={selectableModels.map((m) => ({ value: m.id, label: m.name }))}
                   displayLabel={modelsLoading && models.length === 0 ? "模型加载中…" : undefined}
                 />
               </div>
@@ -477,7 +523,7 @@ export function UnifiedInputCard({
                     <SelectChip
                       value={modelBOptions.some((m) => m.id === modelB) ? modelB : (modelBOptions[0]?.id ?? "")}
                       onChange={onModelBChange}
-                      options={modelBOptions.map((m) => ({ value: m.id, label: m.name }))}
+                      options={selectableModelB.map((m) => ({ value: m.id, label: m.name }))}
                     />
                   </div>
                 </div>

@@ -44,7 +44,7 @@ import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
-import type { AspectRatio, HistoryRecord, ModelInfo } from "@/lib/types";
+import type { AspectRatio, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
   () => import("@/components/HistoryDrawer").then((m) => m.HistoryDrawer),
@@ -65,6 +65,8 @@ export default function Home() {
   const [selectedN, setSelectedN] = useState<1 | 2 | 3 | 4>(1);
   // 参考图清晰度（自动/高清/原图），挂载后从用户设置同步
   const [refQuality, setRefQuality] = useState<RefQuality>("auto");
+  // 输出格式（静图/GIF 动图）；动图时模型下拉只留 2.6 系
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>("static");
   // 多模型对比模式
   const [compareMode, setCompareMode] = useState(false);
   const [modelB, setModelB] = useState<string>("gpt-image-2");
@@ -83,6 +85,7 @@ export default function Home() {
       setSelectedQuality(settings.defaultQuality as Quality);
     if (settings.defaultN) setSelectedN(settings.defaultN);
     if (settings.refQuality) setRefQuality(settings.refQuality);
+    if (settings.defaultOutputFormat) setOutputFormat(settings.defaultOutputFormat);
     // ?prompt=xxx 预填（分享链接 / 自测用）：必须在挂载后读，SSR 首帧保持空串
     const initialPrompt = new URLSearchParams(window.location.search).get("prompt");
     // 分享链接可能超长：按输入上限截断，保证与服务端校验一致
@@ -134,6 +137,7 @@ export default function Home() {
     compareMode,
     modelB: modelB as ModelInfo["id"],
     refQuality,
+    outputFormat,
     activeNodeId: activeNode?.id,
     activeNodeName: activeNode?.name,
     nodeB: nodeB && nodeB.id !== activeNode?.id ? {
@@ -277,6 +281,8 @@ export default function Home() {
               onNChange={setSelectedN}
               refQuality={refQuality}
               onRefQualityChange={setRefQuality}
+              outputFormat={outputFormat}
+              onOutputFormatChange={setOutputFormat}
               compareMode={compareMode}
               onCompareModeChange={setCompareMode}
               modelB={modelB}
@@ -302,6 +308,8 @@ export default function Home() {
             <span>{SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize}</span>
             <span className="sep" aria-hidden="true" />
             <span>{selectedQuality.toUpperCase()}</span>
+            <span className="sep" aria-hidden="true" />
+            <span>{outputFormat === "gif" ? "GIF 动图" : "静图"}</span>
             <span className="sep" aria-hidden="true" />
             <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
             <span className="sep" aria-hidden="true" />

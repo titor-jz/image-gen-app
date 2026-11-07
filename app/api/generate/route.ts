@@ -95,12 +95,18 @@ export async function POST(request: NextRequest) {
     const model = (formData.get("model") as string) || "gpt-image-2";
     const size = (formData.get("size") as string) || "auto";
     const quality = (formData.get("quality") as string) || "1k";
+    // 输出格式：gif=动图（gpt-image 2.6 的动图由提示词驱动，见 AGENTS.md 动图支持）
+    const outputFormat = (formData.get("format") as string) === "gif" ? "gif" : "static";
     const imageFiles = formData.getAll("images") as (File | Blob)[];
 
     if (!prompt) {
       const { body, status } = errorResponse("REQ_MISSING_PROMPT");
       return NextResponse.json({ error: body }, { status });
     }
+
+    // 动图模式统一注入指令：用户没写动图要求时模型会回静图；历史/回填仍存用户原文
+    const upstreamPrompt =
+      outputFormat === "gif" ? `生成无缝循环的GIF动图：${prompt}` : prompt;
 
     // 与输入框 maxLength / 计数同源（lib/prompt-rules.ts），UI 与服务端不会各说各话
     if (prompt.length > MAX_PROMPT_CHARS) {
@@ -113,7 +119,7 @@ export async function POST(request: NextRequest) {
     // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
     const form = createFormData();
     form.append("model", model);
-    form.append("prompt", prompt);
+    form.append("prompt", upstreamPrompt);
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
     form.append("size", sizeMap[size] || "auto");
     form.append("quality", QUALITY_MAP[quality] || "low");
@@ -147,7 +153,7 @@ export async function POST(request: NextRequest) {
           console.log("[generate] 图生图 → /images/edits");
           const editForm = createFormData();
           editForm.append("model", model);
-          editForm.append("prompt", prompt);
+          editForm.append("prompt", upstreamPrompt);
           editForm.append("size", sizeMap[size] || "auto");
           for (let i = 0; i < imageFiles.length; i++) {
             const file = imageFiles[i];
@@ -171,7 +177,7 @@ export async function POST(request: NextRequest) {
             syncUrl,
             {
               model,
-              prompt,
+              prompt: upstreamPrompt,
               size: sizeMap[size] === "auto" ? "auto" : sizeMap[size],
               n: 1,
             },
