@@ -14,8 +14,9 @@ const config: CapacitorConfig = {
   appName: "AI 生图",
   webDir: "cap-www",
   server: {
-    // 生产站点（dev 分支需部署后 APK 才有完整功能）
-    url: "https://image-gen-app-rho.vercel.app",
+    // 生产站点：Cloudflare Workers 部署（ineedjz.us.ci 大陆直连可达；
+    // vercel.app 被墙仅挂代理可用，故 APK 跟随 Workers 主入口）
+    url: "https://ineedjz.us.ci",
     // 站点加载失败（断网等）时显示的兜底页，相对 webDir
     errorPath: "index.html",
   },
