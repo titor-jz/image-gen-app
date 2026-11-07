@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     if (!upstream.ok) {
       console.warn("[models] 上游地址未通过安全校验:", upstream.reason);
     }
-    return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS });
+    return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS, source: "fallback", upstreamError: "节点未配置或未通过安全校验" });
   }
   const { apiKey, baseURL, proxyUrl } = upstream;
 
@@ -48,14 +48,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (res.status < 200 || res.status >= 300) {
-      return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS });
+      return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS, source: "fallback", upstreamError: `上游 ${res.status}` });
     }
 
     let data;
     try {
       data = JSON.parse(res.body);
     } catch {
-      return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS });
+      return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS, source: "fallback", upstreamError: "上游响应非 JSON" });
     }
     // 兼容 OpenAI 的 {data:[...]}、裸数组、Google 风格的 {models:[{name}]}
     const entries = parseModelEntries(data) ?? [];
@@ -89,11 +89,12 @@ export async function GET(request: NextRequest) {
     // 用户选中纯对话模型后调用生图接口必然失败，只暴露兜底模型更安全
     const models = imageIds.map(toModelInfo);
     if (models.length === 0) {
-      return NextResponse.json({ models: FALLBACK_MODELS });
+      return NextResponse.json({ models: FALLBACK_MODELS, source: "fallback", upstreamError: "上游未返回可用的图像模型" });
     }
 
-    return NextResponse.json({ models });
-  } catch {
-    return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS });
+    return NextResponse.json({ models, source: "upstream" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "网络请求失败";
+    return NextResponse.json({ models: wantChat ? [] : FALLBACK_MODELS, source: "fallback", upstreamError: msg });
   }
 }

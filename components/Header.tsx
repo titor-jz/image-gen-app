@@ -42,7 +42,7 @@ export function Header({ onShowHistory }: HeaderProps) {
   const { isDark, toggleTheme } = useTheme();
 
   return (
-    <header className="inst-bar sticky top-0 z-40 bg-background/85 backdrop-blur-md border-b border-border/60">
+    <header className="inst-bar sticky top-0 z-40 bg-background/85 backdrop-blur-md border-b border-border/60 pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex h-[60px] w-full max-w-[1320px] items-center gap-0.5 px-6 lg:px-10">
         <div className="inst-mono shrink-0 text-[12px] font-semibold tracking-[0.2em] text-foreground">
           AI&nbsp;IMAGE&nbsp;GEN

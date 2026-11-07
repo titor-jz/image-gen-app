@@ -20,6 +20,10 @@ import {
   Plus,
   Trash2,
   Server,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +82,73 @@ function parseCustomModels(text: string): string[] {
         .filter(Boolean)
     ),
   ];
+}
+
+/** 密钥输入框：可显隐、可一键复制（移动端 WebView 无系统级复制入口时的兜底） */
+function SecretInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [show, setShow] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={show ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="pr-16"
+      />
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="h-7 w-7"
+          onClick={async () => {
+            if (!value) return;
+            try {
+              await navigator.clipboard.writeText(value);
+            } catch {
+              // 旧 WebView 无 clipboard API：退回 execCommand
+              const ta = document.createElement("textarea");
+              ta.value = value;
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand("copy");
+              ta.remove();
+            }
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          aria-label="复制 API Key"
+          title="复制"
+        >
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          className="h-7 w-7"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? "隐藏 API Key" : "显示 API Key"}
+          title={show ? "隐藏" : "显示"}
+        >
+          {show ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function SettingsDialog({
@@ -383,12 +454,11 @@ export function SettingsDialog({
               <label htmlFor="settings-optimize-key" className="text-xs text-muted-foreground mb-1 block">
                 API Key
               </label>
-              <Input
+              <SecretInput
                 id="settings-optimize-key"
-                type="password"
                 placeholder="sk-…"
                 value={optDraft.apiKey}
-                onChange={(e) => patchOptDraft({ apiKey: e.target.value })}
+                onChange={(v) => patchOptDraft({ apiKey: v })}
               />
             </div>
 
@@ -480,13 +550,12 @@ export function SettingsDialog({
               <label htmlFor="settings-api-key" className="text-sm text-muted-foreground mb-1.5 block">
                 API Key
               </label>
-              <Input
+              <SecretInput
                 id="settings-api-key"
-                type="password"
                 placeholder="sk-..."
                 value={edit.apiKey}
-                onChange={(e) => {
-                  setEdit({ ...edit, apiKey: e.target.value });
+                onChange={(v) => {
+                  setEdit({ ...edit, apiKey: v });
                   setTestStatus("idle");
                   setTestMessage("");
                 }}

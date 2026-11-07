@@ -115,7 +115,7 @@ export default function Home() {
   });
 
   // 3. 数据：模型列表
-  const { models, loading: modelsLoading } = useModels();
+  const { models, loading: modelsLoading, modelsError, reload: reloadModels } = useModels();
 
   // 节点切换后、新列表返回前，上次选中的模型可能不存在于新节点。
   // 渲染期派生为列表内第一个可用模型，避免拿过期模型名发起生成。
@@ -272,6 +272,8 @@ export default function Home() {
               models={models}
               selectedModel={effectiveModel}
               modelsLoading={modelsLoading}
+              modelsError={modelsError}
+              onReloadModels={reloadModels}
               onModelChange={setSelectedModel}
               selectedSize={selectedSize}
               onSizeChange={setSelectedSize}

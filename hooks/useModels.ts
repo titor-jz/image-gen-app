@@ -28,12 +28,15 @@ const FALLBACK_MODELS: ModelInfo[] = [
 export interface UseModelsResult {
   models: ModelInfo[];
   loading: boolean;
+  /** 模型列表拉取失败的原因（null=成功或尚未拉取）；失败时 UI 显示兜底列表+重试入口 */
+  modelsError: string | null;
   reload: () => Promise<void>;
 }
 
 export function useModels(): UseModelsResult {
   const [models, setModels] = useState<ModelInfo[]>(FALLBACK_MODELS);
   const [loading, setLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   // API 配置来自 Context：组件挂载时初值为空（SSR/hydration 安全），
   // Context 在自己的 effect 里读取 localStorage 后才有真实值
   const { apiKey, baseUrl, proxyUrl, activeProfile } = useApiConfig();
@@ -56,8 +59,10 @@ export function useModels(): UseModelsResult {
       const data = await res.json();
       if (data?.models && Array.isArray(data.models) && data.models.length > 0) {
         applyModels(data.models);
+        setModelsError(data.source === "upstream" ? null : (data.upstreamError ?? null));
       } else {
         applyModels(FALLBACK_MODELS);
+        setModelsError(data?.upstreamError ?? "上游未返回模型列表");
       }
     } catch {
       applyModels(FALLBACK_MODELS);
@@ -86,12 +91,15 @@ export function useModels(): UseModelsResult {
         if (cancelled) return;
         if (data?.models && Array.isArray(data.models) && data.models.length > 0) {
           applyModels(data.models);
+          setModelsError(data.source === "upstream" ? null : (data.upstreamError ?? null));
         } else {
           applyModels(FALLBACK_MODELS);
+          setModelsError(data?.upstreamError ?? "上游未返回模型列表");
         }
       } catch {
         if (cancelled) return;
         applyModels(FALLBACK_MODELS);
+        setModelsError("网络请求失败");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -101,5 +109,5 @@ export function useModels(): UseModelsResult {
     };
   }, [apiKey, baseUrl, proxyUrl, applyModels]);
 
-  return { models, loading, reload: loadModels };
+  return { models, loading, modelsError, reload: loadModels };
 }

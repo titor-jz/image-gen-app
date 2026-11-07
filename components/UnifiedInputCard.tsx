@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2 } from "lucide-react";
+import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { PromptGuide } from "@/components/PromptGuide";
@@ -39,6 +39,10 @@ interface UnifiedInputCardProps {
   onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
   /** 节点切换后新模型列表加载中（chip 显示加载提示，避免误以为旧列表可用） */
   modelsLoading?: boolean;
+  /** 模型列表拉取失败原因（null=成功）；失败时 UI 显示兜底列表+重试入口 */
+  modelsError?: string | null;
+  /** 重拉模型列表（设置弹窗改完 Key 后也可用） */
+  onReloadModels?: () => void;
   models: ModelInfo[];
   selectedModel: string;
   onModelChange: (m: string) => void;
@@ -113,7 +117,7 @@ const MAX_COUNT = 8;
 
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
-  models, modelsLoading, selectedModel, onModelChange, selectedSize, onSizeChange,
+  models, modelsLoading, modelsError, onReloadModels, selectedModel, onModelChange, selectedSize, onSizeChange,
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
   outputFormat, onOutputFormatChange,
@@ -486,6 +490,19 @@ export function UnifiedInputCard({
                 />
               </div>
             </div>
+
+            {/* 模型列表拉取失败：不再静默吞掉，给出原因与重试入口 */}
+            {modelsError && !modelsLoading && (
+              <button
+                type="button"
+                onClick={onReloadModels}
+                className="self-start inline-flex items-center gap-1.5 pl-12 text-xs text-destructive transition-colors hover:text-foreground"
+                title={modelsError}
+              >
+                <RotateCcw className="h-3 w-3" />
+                模型列表获取失败：{modelsError}（点按重试）
+              </button>
+            )}
 
             {/* 对比开关 */}
             <div className="flex items-center gap-3">
