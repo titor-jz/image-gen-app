@@ -1,7 +1,7 @@
 import type { ModelInfo } from "./types";
 
 /** 自定义模型的默认可选尺寸（与 /api/models 返回的模型保持一致） */
-const DEFAULT_SIZES: ModelInfo["supportedSizes"] = [
+export const DEFAULT_SIZES: ModelInfo["supportedSizes"] = [
   "auto",
   "1:1",
   "16:9",

@@ -86,6 +86,17 @@ export interface UseImageGenerationOptions {
   refQuality?: "auto" | "hd" | "original";
   /** 输出格式（static=静图 / gif=动图）；gif 时服务端会在提示词前注入动图指令 */
   outputFormat?: OutputFormat;
+  /** 模型优先路由：目录解析出的节点（选中模型在激活节点缺失时由页面传入）。
+   *  提供时 nodeA 整体替换为该节点（含 Key），能力记忆/缓存/结果标注随之跟随 */
+  overrideNode?: {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    proxyUrl: string;
+  };
+  /** 生成失败时的渠道提示：返回该模型的其他可用渠道描述（拼接进失败信息） */
+  getChannelHint?: (modelId: string, excludeNodeId?: string) => string | null;
 }
 
 export interface UseImageGenerationResult {
@@ -207,6 +218,7 @@ export function useImageGeneration(
   const {
     prompt, referenceImages, model, size, quality, n, compareMode, modelB,
     activeNodeId, activeNodeName, nodeB, refQuality, outputFormat,
+    overrideNode, getChannelHint,
   } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
@@ -431,7 +443,9 @@ export function useImageGeneration(
     const batchId = genId("batch");
 
     // 节点快照：A 侧 = 当前激活节点（提交时定格）；B 侧 = nodeB
-    const nodeA = {
+    // 模型优先路由：页面传入的 overrideNode（目录解析出的节点）优先于激活节点——
+    // 其余下游（能力记忆 key、缓存 key、结果 nodeName 标注、in-flight 快照）全部自动跟随
+    const nodeA = overrideNode ?? {
       id: activeNodeId || "active",
       name: activeNodeName || "当前节点",
       baseUrl,
@@ -768,11 +782,14 @@ export function useImageGeneration(
                 : err instanceof Error
                 ? err.message
                 : getErrorMessage("UNKNOWN");
-            markTerminal(task.id, { status: "failed", error: msg });
+            // 模型优先路由的配套提示：该模型在其他渠道还可用时，告知用户可手动切换
+            const hint = getChannelHint?.(task.model, taskNode.id) ?? null;
+            const fullMsg = hint ? `${msg}（${hint}）` : msg;
+            markTerminal(task.id, { status: "failed", error: fullMsg });
             // 同上：让失败原因常驻在主界面（审核/长度限制时附改法）
-            setError(msg);
+            setError(fullMsg);
             setErrorCode(err instanceof ApiError ? err.code : "UNKNOWN");
-            toast.error(`第 ${task.slot + 1} 张生成失败`, { description: msg });
+            toast.error(`第 ${task.slot + 1} 张生成失败`, { description: fullMsg });
           }
         } finally {
           abortMapRef.current.delete(task.id);
@@ -844,6 +861,8 @@ export function useImageGeneration(
     nodeB,
     refQuality,
     outputFormat,
+    overrideNode,
+    getChannelHint,
     baseUrl,
     proxyUrl,
     updateTask,

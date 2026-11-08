@@ -4,7 +4,7 @@
  * Home Page - 智能生图主界面
  *
  * 负责 UI 组装，所有业务逻辑已下沉到 hooks/：
- *  - useModels: 加载模型列表
+ *  - useModelCatalog: 跨节点模型目录聚合（模型优先自动路由）
  *  - useInFlightRecovery: 启动时检测未完成任务
  *  - useImageGeneration: 核心生成 + 轮询 + 缓存 + IndexedDB
  *
@@ -18,7 +18,7 @@
  * (hydration mismatch)，所以采用 useEffect 异步同步。
  */
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
@@ -35,7 +35,8 @@ import { getSettings } from "@/lib/user-settings";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { suggestPromptFixes } from "@/lib/prompt-fix-suggestions";
 import { classifyErrorCode } from "@/lib/error-origin";
-import { useModels } from "@/hooks/useModels";
+import { useModelCatalog } from "@/hooks/useModelCatalog";
+import { DEFAULT_SIZES } from "@/lib/custom-models";
 import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
@@ -114,14 +115,57 @@ export default function Home() {
     optimizeModel: optimizeEndpoint?.optimizeModel ?? "",
   });
 
-  // 3. 数据：模型列表
-  const { models, loading: modelsLoading, modelsError, reload: reloadModels } = useModels();
+  // 3. 数据：跨节点模型目录聚合（模型优先路由的数据源）
+  const {
+    catalog,
+    loading: modelsLoading,
+    hasError: catalogHasError,
+    reload: reloadCatalog,
+  } = useModelCatalog(profiles);
+
+  // 目录 → ModelInfo 形状（supportedSizes 在 UI 无逻辑消费，给默认值）
+  const models: ModelInfo[] = useMemo(
+    () =>
+      catalog.map((e) => ({
+        id: e.modelId,
+        name: e.name,
+        supportedSizes: DEFAULT_SIZES,
+      })),
+    [catalog]
+  );
+  // 模型行重试提示（任一节点拉取失败时显示）
+  const modelsError = catalogHasError ? "部分节点模型列表获取失败" : null;
 
   // 节点切换后、新列表返回前，上次选中的模型可能不存在于新节点。
   // 渲染期派生为列表内第一个可用模型，避免拿过期模型名发起生成。
   const effectiveModel = models.some((m) => m.id === selectedModel)
     ? selectedModel
     : models[0]?.id ?? selectedModel;
+
+  // 模型优先路由：选中模型在激活节点缺失时，按目录优先级自动切换到有它的节点。
+  // 返回 undefined = 用激活节点（目录缺失/激活节点就有该模型）。
+  const routedNode = useMemo(() => {
+    const entry = catalog.find((e) => e.modelId === effectiveModel);
+    if (!entry) return undefined;
+    if (entry.nodes.includes(activeId)) return undefined;
+    const nodeId = entry.nodes.find((id) =>
+      profiles.some((p) => p.id === id && p.apiKey)
+    );
+    return nodeId ? profiles.find((p) => p.id === nodeId) : undefined;
+  }, [catalog, effectiveModel, activeId, profiles]);
+
+  // 失败时的渠道提示：该模型的其他可用渠道（排除本次失败的）
+  const getChannelHint = useCallback(
+    (modelId: string, excludeNodeId?: string) => {
+      const entry = catalog.find((e) => e.modelId === modelId);
+      if (!entry) return null;
+      const names = entry.nodes
+        .filter((id) => id !== excludeNodeId)
+        .map((id) => profiles.find((p) => p.id === id)?.name || id);
+      return names.length > 0 ? `其他可用渠道：${names.join("、")}` : null;
+    },
+    [catalog, profiles]
+  );
 
   // 4. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
@@ -138,6 +182,16 @@ export default function Home() {
     modelB: modelB as ModelInfo["id"],
     refQuality,
     outputFormat,
+    overrideNode: routedNode
+      ? {
+          id: routedNode.id,
+          name: routedNode.name,
+          baseUrl: routedNode.baseUrl,
+          apiKey: routedNode.apiKey,
+          proxyUrl: routedNode.proxyUrl,
+        }
+      : undefined,
+    getChannelHint,
     activeNodeId: activeNode?.id,
     activeNodeName: activeNode?.name,
     nodeB: nodeB && nodeB.id !== activeNode?.id ? {
@@ -273,7 +327,7 @@ export default function Home() {
               selectedModel={effectiveModel}
               modelsLoading={modelsLoading}
               modelsError={modelsError}
-              onReloadModels={reloadModels}
+              onReloadModels={reloadCatalog}
               onModelChange={setSelectedModel}
               selectedSize={selectedSize}
               onSizeChange={setSelectedSize}
@@ -315,7 +369,7 @@ export default function Home() {
             <span className="sep" aria-hidden="true" />
             <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
             <span className="sep" aria-hidden="true" />
-            <span>节点 {activeNode?.name ?? "未配置"}</span>
+            <span>节点 {routedNode?.name ?? activeNode?.name ?? "未配置"}</span>
             <span className="ml-auto">提示词 {prompt.length} / {MAX_PROMPT_CHARS}</span>
           </div>
         </div>
