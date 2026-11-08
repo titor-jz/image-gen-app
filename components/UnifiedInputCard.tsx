@@ -94,11 +94,16 @@ export const OUTPUT_FORMATS: { value: OutputFormat; label: string }[] = [
   { value: "gif", label: "GIF 动图" },
 ];
 
-/** gpt-image 型号 ≥2.6 才支持动图输出；非 gpt-image 系一律按静图处理 */
+/** gpt-image ≥2.6 才可能支持动图输出；2.6 系里实测仅 flare/sunburst 变体出动画
+ *  （基础版 2.6 同提示词实测只出静图），非 gpt-image 系一律按静图处理 */
 function supportsAnimation(modelId: string): boolean {
-  const m = /gpt-image-(\d+)(?:\.(\d+))?/i.exec(modelId);
+  const m = /gpt-image-(\d+)(?:\.(\d+))?(?:-(flare|sunburst))?$/i.exec(modelId);
   if (!m) return false;
-  return Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2] ?? 0) >= 6);
+  const major = Number(m[1]);
+  const minor = Number(m[2] ?? 0);
+  if (major > 2 || (major === 2 && minor > 6)) return true; // 2.7+ 假定继承能力
+  if (major === 2 && minor === 6) return Boolean(m[3]); // 基础版 2.6 实测静图，变体才动
+  return false;
 }
 export const QUALITIES: { value: Quality; label: string }[] = [
   { value: "1k", label: "1K" },

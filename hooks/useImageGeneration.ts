@@ -621,7 +621,53 @@ export function useImageGeneration(
             images?: Array<{ b64_json: string; mime: string }>;
             error?: string;
           };
-          if (contentType.includes("application/json")) {
+          if (contentType.includes("application/x-ndjson")) {
+            // 同步回退分支的流式响应：心跳行保活（忽略），最后一行 result/error 是有效载荷。
+            // 心跳让手机网络不会掐断 40s+ 的长请求（实测 failed to fetch 但上游已扣费的根因）
+            const reader = response.body!.getReader();
+            const dec = new TextDecoder();
+            let buf = "";
+            let result: { images?: Array<{ b64_json: string; mime: string }> } | null = null;
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let nl: number;
+              while ((nl = buf.indexOf("\n")) >= 0) {
+                const line = buf.slice(0, nl).trim();
+                buf = buf.slice(nl + 1);
+                if (!line) continue;
+                const msg = JSON.parse(line) as {
+                  type: string;
+                  images?: Array<{ b64_json: string; mime: string }>;
+                  error?: string;
+                };
+                if (msg.type === "heartbeat") continue;
+                if (msg.type === "result") {
+                  result = msg;
+                  continue;
+                }
+                if (msg.type === "error") {
+                  // error 字段是 errorResponse 的 body（JSON 字符串），解析出稳定 code + 文案；
+                  // code 来自自家 errorResponse，必然是合法 ErrorCode
+                  let code: ErrorCode = "GEN_UPSTREAM_FAILED";
+                  let message = msg.error ?? "上游生成失败";
+                  try {
+                    const parsed = JSON.parse(msg.error ?? "");
+                    code = (parsed.error?.code ?? code) as ErrorCode;
+                    message = parsed.error?.message ?? message;
+                  } catch {
+                    // body 非 JSON 时按原文展示
+                  }
+                  throw new ApiError(code, message);
+                }
+              }
+            }
+            if (!result) {
+              throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", "流式响应缺少结果");
+            }
+            data = result;
+          } else if (contentType.includes("application/json")) {
             data = await response.json();
           } else {
             const text = await response.text();

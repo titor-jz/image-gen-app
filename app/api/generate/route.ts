@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { httpRequest, httpFormDataRequest, httpJsonPost, createFormData } from "@/lib/http-client";
-import { errorResponse } from "@/lib/error-messages";
+import { errorResponse, type ErrorCode } from "@/lib/error-messages";
 import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
@@ -14,6 +14,149 @@ function sniffImageMime(b64: string): string {
   if (bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
   return "image/png";
+}
+
+/** 同步兜底生成 + ndjson 流式保活。
+ *
+ * 部分中转无异步端点（async 404），回落同步后整个生成期间挂住连接 40s+——
+ * 手机蜂窝网络会掐断这种长连接（实测 failed to fetch 但上游已扣费）。
+ * 改为流式响应：每 10s 一行心跳让连接保持活跃，最终结果/错误以最后一行 JSON 返回。
+ */
+function streamSyncGeneration(opts: {
+  syncUrl: string;
+  model: string;
+  upstreamPrompt: string;
+  sizeParam: string;
+  imageFiles: (File | Blob)[];
+  baseURL: string;
+  apiKey: string;
+  proxyUrl?: string;
+}): NextResponse {
+  const stream = new ReadableStream({
+    async start(controller) {
+      const enc = new TextEncoder();
+      let closed = false;
+      const send = (obj: Record<string, unknown>) => {
+        if (closed) return;
+        controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+      };
+      const heartbeat = setInterval(() => send({ type: "heartbeat" }), 10000);
+      const finish = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        controller.close();
+      };
+      const fail = (status: number, code: ErrorCode, message: string) => {
+        const { body } = errorResponse(code, message);
+        send({ type: "error", status, error: body });
+        finish();
+      };
+
+      try {
+        let res;
+        if (opts.imageFiles.length > 0) {
+          // 图生图走标准 /v1/images/edits（multipart）——带图的 /generations 会被
+          // NewAPI 系中转识别为 dall-e 请求 → 503 No available channel
+          const editForm = createFormData();
+          editForm.append("model", opts.model);
+          editForm.append("prompt", opts.upstreamPrompt);
+          editForm.append("size", opts.sizeParam);
+          for (let i = 0; i < opts.imageFiles.length; i++) {
+            const file = opts.imageFiles[i];
+            if (file instanceof Blob) {
+              editForm.append("image", file, (file as File).name || `input_${i}.png`);
+            }
+          }
+          res = await httpFormDataRequest(
+            `${opts.baseURL}/images/edits`,
+            editForm,
+            { Authorization: `Bearer ${opts.apiKey}` },
+            opts.proxyUrl
+          );
+        } else {
+          // 纯文生图走 /v1/images/generations（JSON: model/prompt/size/n）
+          res = await httpJsonPost(
+            opts.syncUrl,
+            { model: opts.model, prompt: opts.upstreamPrompt, size: opts.sizeParam, n: 1 },
+            { Authorization: `Bearer ${opts.apiKey}` },
+            opts.proxyUrl
+          );
+        }
+
+        if (res.status === 401 || res.status === 403) {
+          fail(res.status, res.status === 401 ? "AUTH_INVALID_KEY" : "AUTH_FORBIDDEN", "鉴权失败");
+          return;
+        }
+        if (res.status < 200 || res.status >= 300) {
+          let errMsg = "未知错误";
+          try {
+            const errData = JSON.parse(res.body);
+            errMsg = errData.error?.message || errData.message || errMsg;
+          } catch {
+            errMsg = `上游服务返回错误 (${res.status})`;
+          }
+          const hint = upstreamErrorHint(errMsg);
+          fail(res.status, "GEN_UPSTREAM_FAILED", `${res.status} ${errMsg}${hint ? ` · ${hint}` : ""}`);
+          return;
+        }
+
+        let data;
+        try {
+          data = JSON.parse(res.body);
+        } catch {
+          fail(502, "GEN_UPSTREAM_BAD_RESPONSE", "上游响应解析失败");
+          return;
+        }
+
+        const first = Array.isArray(data?.data) ? data.data[0] : undefined;
+        if (!first) {
+          fail(502, "GEN_UPSTREAM_NO_TASK_ID", "上游响应中未找到图片数据");
+          return;
+        }
+
+        let b64Json: string | undefined = first.b64_json;
+        if (!b64Json && typeof first.url === "string") {
+          // 上游返回的图片地址在服务端代取前必须过 SSRF 基线校验（评审 S-2）
+          const downloadErr = upstreamUrlError(first.url);
+          if (downloadErr) {
+            fail(502, "GEN_UPSTREAM_FAILED", downloadErr);
+            return;
+          }
+          try {
+            const imgRes = await httpRequest(first.url, { proxyUrl: opts.proxyUrl || undefined });
+            if (imgRes.status >= 200 && imgRes.status < 300 && imgRes.bodyBuffer) {
+              b64Json = imgRes.bodyBuffer.toString("base64");
+            } else {
+              fail(502, "GEN_UPSTREAM_FAILED", `下载图片失败 (${imgRes.status})`);
+              return;
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "下载图片异常";
+            fail(502, "GEN_UPSTREAM_NETWORK", msg);
+            return;
+          }
+        }
+
+        if (b64Json) {
+          send({ type: "result", images: [{ b64_json: b64Json, mime: sniffImageMime(b64Json) }] });
+          finish();
+          return;
+        }
+        fail(502, "GEN_UPSTREAM_NO_TASK_ID", "上游响应中未找到图片数据");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "网络请求失败";
+        fail(502, "GEN_UPSTREAM_NETWORK", msg);
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
 }
 
 // gpt-image-2 支持的尺寸
@@ -142,49 +285,21 @@ export async function POST(request: NextRequest) {
         proxyUrl
       );
       // 部分中转只实现了 OpenAI 标准同步端点，没有 async 端点（404/405）。
-      // 此时回落同步，且必须按用途分端点 + 精简参数：
-      //  - 图生图走标准 /v1/images/edits（multipart: model/prompt/size/image）。
-      //    带图的 /generations、或携带 response_format/quality 参数，
-      //    都会被 NewAPI 系中转识别为 dall-e 请求 → 503 No available channel
-      //  - 纯文生图走 /v1/images/generations（JSON: model/prompt/size/n）
+      // 回落同步时改走流式响应（streamSyncGeneration）：同步生成动辄 40s+，
+      // 手机网络会掐断长连接（实测 failed to fetch 但上游已扣费）——
+      // ndjson 心跳保活，结果以流内最后一行 JSON 返回。
       if (res.status === 404 || res.status === 405) {
-        console.log("[generate] 上游无异步端点, 回落同步端点");
-        if (imageFiles.length > 0) {
-          console.log("[generate] 图生图 → /images/edits");
-          const editForm = createFormData();
-          editForm.append("model", model);
-          editForm.append("prompt", upstreamPrompt);
-          editForm.append("size", sizeMap[size] || "auto");
-          for (let i = 0; i < imageFiles.length; i++) {
-            const file = imageFiles[i];
-            if (file instanceof Blob) {
-              editForm.append(
-                "image",
-                file,
-                (file as File).name || `input_${i}.png`
-              );
-            }
-          }
-          res = await httpFormDataRequest(
-            `${baseURL}/images/edits`,
-            editForm,
-            { Authorization: `Bearer ${apiKey}` },
-            proxyUrl
-          );
-        } else {
-          console.log("[generate] 文生图 → /images/generations (JSON)");
-          res = await httpJsonPost(
-            syncUrl,
-            {
-              model,
-              prompt: upstreamPrompt,
-              size: sizeMap[size] === "auto" ? "auto" : sizeMap[size],
-              n: 1,
-            },
-            { Authorization: `Bearer ${apiKey}` },
-            proxyUrl
-          );
-        }
+        console.log("[generate] 上游无异步端点, 回落同步端点（ndjson 流式保活）");
+        return streamSyncGeneration({
+          syncUrl,
+          model,
+          upstreamPrompt,
+          sizeParam: sizeMap[size] || "auto",
+          imageFiles,
+          baseURL,
+          apiKey,
+          proxyUrl: proxyUrl || undefined,
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "网络请求失败";

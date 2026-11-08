@@ -34,7 +34,8 @@ npm run deploy:cf      # Cloudflare 部署
 - **提示词优化是独立接口配置**：设置里「提示词优化接口」自己填 Base URL / Key / 模型 / 代理（`image-gen-optimize-config`），不占用生图节点列表，也不需要「启用」；留空时才回落到当前生图节点。`/api/optimize` 自动挑对话模型（`/models` 为空时按常见型号探测），失败保留原文、不静默降级。
 - **历史图存 IndexedDB**（`lib/db.ts`，用 `idb`）；设置存 localStorage（`lib/user-settings.ts`）。
 - **上游 HTTP 统一走 `lib/http-client.ts`**（双运行时自适应：Node/Vercel 用 undici——连接池 + ProxyAgent 代理；Cloudflare Workers 用全局 fetch，`proxyUrl` 在该运行时被忽略），不要绕过它自行选 fetch 实现。
-- **动图支持**：gpt-image-2.6 可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。动图由提示词驱动：UI「格式」选 GIF 后模型下拉只留 ≥2.6 型号（`supportsAnimation`），且服务端在提示词前注入「生成无缝循环的GIF动图：」指令（`format` 字段，历史/回填仍存用户原文）。
+- **动图支持**：gpt-image 2.6 系可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。动图由提示词驱动：UI「格式」选 GIF 后模型下拉只留实测能出动画的型号（`supportsAnimation`——**基础版 2.6 实测只出静图，仅 flare/sunburst 可靠**），且服务端在提示词前注入「生成无缝循环的GIF动图：」指令（`format` 字段，历史/回填仍存用户原文）。提示词里写「循环时长/帧率」类字眼实测会让动画失效变静图，帧数/时长参数中转也不透传——均不要加。
+- **中转无异步端点时同步生成必须流式保活**：async 404 回落同步后，整个生成期（flare 实测 38~41s）挂住连接，手机蜂窝网络会掐断长请求（报 failed to fetch 但上游已扣费）。generate 路由的同步回退分支返回 ndjson 流（`streamSyncGeneration`）：每 10s 一行心跳保活，最后一行 result/error 是载荷；客户端 `useImageGeneration` 按行解析。Workers 上游超时放宽到 95s（CF 边缘 100s 截断内），Vercel 维持 55s。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。
 - 任务编排（并发、单张取消、指数退避轮询）在 `hooks/useImageGeneration.ts`；多节点/模型状态在 `lib/api-config-context.tsx`。
 

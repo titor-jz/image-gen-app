@@ -16,10 +16,12 @@
 const IS_WORKERS =
   typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
-// 上游请求超时：默认对齐 Vercel maxDuration（60s，见 vercel.json）。
-// 本地/自托管部署可用环境变量放宽（如 GEN_TIMEOUT_MS=300000），
-// Vercel 上不配置即维持安全默认（评审 S-5）。
-const GEN_TIMEOUT_MS = Number(process.env.GEN_TIMEOUT_MS) || 55000;
+// 上游请求超时：Vercel 上对齐 maxDuration（60s，见 vercel.json）；
+// Workers 上没有函数时长限制（只有 CF 边缘 100s 截断），放宽到 95s——
+// 中转无异步端点时同步生成分支要挂住整个生成期（flare 实测 41s，sunburst 更久）。
+// 本地/自托管部署可用环境变量放宽（如 GEN_TIMEOUT_MS=300000）。
+const GEN_TIMEOUT_MS =
+  Number(process.env.GEN_TIMEOUT_MS) || (IS_WORKERS ? 95000 : 55000);
 const GET_TIMEOUT_MS = Number(process.env.HTTP_GET_TIMEOUT_MS) || 30000;
 
 // 建连超时：undici 默认 10s，跨境/中转偶发握手挂起会被过早判死（实测同一地址
