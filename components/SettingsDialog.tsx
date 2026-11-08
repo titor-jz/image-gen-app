@@ -182,6 +182,8 @@ export function SettingsDialog({
   // ---- 提示词优化接口：独立配置（自己填 Base URL / Key / 模型，保存后生效） ----
   const [optDraft, setOptDraft] = useState<OptimizeConfig>(optimizeConfig);
   const [optSaved, setOptSaved] = useState(false);
+  /** 弹窗内分区：生图节点（默认）/ 提示词优化——互不打断 */
+  const [settingsTab, setSettingsTab] = useState<"nodes" | "optimize">("nodes");
 
   // 打开弹窗时同步一次；外部（跨标签页）保存不覆盖正在输入的值
   const syncedOptimizeRef = useRef(false);
@@ -370,6 +372,17 @@ export function SettingsDialog({
           <DialogTitle className="inst-label text-[13px] text-foreground">API 节点设置</DialogTitle>
         </DialogHeader>
 
+        {/* 设置分区：生图节点（默认）/ 提示词优化——新增节点不必路过优化配置 */}
+        <div className="inst-seg" role="tablist">
+          <button type="button" onClick={() => setSettingsTab("nodes")} data-on={settingsTab === "nodes"}>
+            生图节点
+          </button>
+          <button type="button" onClick={() => setSettingsTab("optimize")} data-on={settingsTab === "optimize"}>
+            提示词优化
+          </button>
+        </div>
+
+        {settingsTab === "nodes" && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[248px_1fr] sm:gap-6">
           {/* 左列：节点列表（点击选中编辑；「使用中」标识生成时用哪套配置） */}
           <div className="space-y-1.5 sm:border-r sm:border-border/70 sm:pr-5">
@@ -430,83 +443,6 @@ export function SettingsDialog({
 
           {/* 右列：提示词优化接口 + 节点编辑表单 + 操作 */}
           <div className="min-w-0 space-y-4">
-
-          {/* 提示词优化接口：独立配置——自己填地址/Key/模型并保存，不从生图节点里挑 */}
-          <div className="space-y-2 border-t border-border pt-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground">提示词优化接口（可选）</span>
-              {optSaved && <span className="text-xs text-green-500 animate-fade-in">已保存</span>}
-            </div>
-
-            <div>
-              <label htmlFor="settings-optimize-base" className="text-xs text-muted-foreground mb-1 block">
-                API Base URL
-              </label>
-              <Input
-                id="settings-optimize-base"
-                placeholder="https://…/v1（对话模型所在的接口）"
-                value={optDraft.baseUrl}
-                onChange={(e) => patchOptDraft({ baseUrl: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="settings-optimize-key" className="text-xs text-muted-foreground mb-1 block">
-                API Key
-              </label>
-              <SecretInput
-                id="settings-optimize-key"
-                placeholder="sk-…"
-                value={optDraft.apiKey}
-                onChange={(v) => patchOptDraft({ apiKey: v })}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="settings-optimize-model" className="text-xs text-muted-foreground mb-1 block">
-                模型
-              </label>
-              <Input
-                id="settings-optimize-model"
-                list="settings-optimize-model-options"
-                placeholder="如 deepseek-v4-flash-0731；留空由服务端自动挑"
-                value={optDraft.model}
-                onChange={(e) => patchOptDraft({ model: e.target.value })}
-              />
-              {/* datalist：点开即见该接口的对话模型，同时保留手填（中转模型名可能不在列表里） */}
-              <datalist id="settings-optimize-model-options">
-                {chatModelIds.map((id) => (
-                  <option key={id} value={id} />
-                ))}
-              </datalist>
-              <p className="text-xs text-muted-foreground mt-1">
-                {chatModelIds.length > 0
-                  ? `已从该接口取到 ${chatModelIds.length} 个对话模型`
-                  : "未取到模型列表时可手动填写模型名"}
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="settings-optimize-proxy" className="text-xs text-muted-foreground mb-1 block">
-                代理地址（可选）
-              </label>
-              <Input
-                id="settings-optimize-proxy"
-                placeholder="http://127.0.0.1:7890"
-                value={optDraft.proxyUrl}
-                onChange={(e) => patchOptDraft({ proxyUrl: e.target.value })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-3 pt-1">
-              <p className="text-xs text-muted-foreground">
-                留空则使用当前生图节点；此配置只用于「优化提示词」，不影响生图。
-              </p>
-              <Button size="sm" onClick={handleSaveOptimize} className="press shrink-0">
-                保存
-              </Button>
-            </div>
-          </div>
 
           {/* 编辑表单 */}
           <div className="space-y-3 border-t border-border pt-3">
@@ -635,6 +571,86 @@ export function SettingsDialog({
           )}
           </div>
         </div>
+        )}
+
+        {settingsTab === "optimize" && (
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">提示词优化接口（可选）</span>
+              {optSaved && <span className="text-xs text-green-500 animate-fade-in">已保存</span>}
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-base" className="text-xs text-muted-foreground mb-1 block">
+                API Base URL
+              </label>
+              <Input
+                id="settings-optimize-base"
+                placeholder="https://…/v1（对话模型所在的接口）"
+                value={optDraft.baseUrl}
+                onChange={(e) => patchOptDraft({ baseUrl: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-key" className="text-xs text-muted-foreground mb-1 block">
+                API Key
+              </label>
+              <SecretInput
+                id="settings-optimize-key"
+                placeholder="sk-…"
+                value={optDraft.apiKey}
+                onChange={(v) => patchOptDraft({ apiKey: v })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-model" className="text-xs text-muted-foreground mb-1 block">
+                模型
+              </label>
+              <Input
+                id="settings-optimize-model"
+                list="settings-optimize-model-options"
+                placeholder="如 deepseek-v4-flash-0731；留空由服务端自动挑"
+                value={optDraft.model}
+                onChange={(e) => patchOptDraft({ model: e.target.value })}
+              />
+              {/* datalist：点开即见该接口的对话模型，同时保留手填（中转模型名可能不在列表里） */}
+              <datalist id="settings-optimize-model-options">
+                {chatModelIds.map((id) => (
+                  <option key={id} value={id} />
+                ))}
+              </datalist>
+              <p className="text-xs text-muted-foreground mt-1">
+                {chatModelIds.length > 0
+                  ? `已从该接口取到 ${chatModelIds.length} 个对话模型`
+                  : "未取到模型列表时可手动填写模型名"}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="settings-optimize-proxy" className="text-xs text-muted-foreground mb-1 block">
+                代理地址（可选）
+              </label>
+              <Input
+                id="settings-optimize-proxy"
+                placeholder="http://127.0.0.1:7890"
+                value={optDraft.proxyUrl}
+                onChange={(e) => patchOptDraft({ proxyUrl: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <p className="text-xs text-muted-foreground">
+                留空则使用当前生图节点；此配置只用于「优化提示词」，不影响生图。
+              </p>
+              <Button size="sm" onClick={handleSaveOptimize} className="press shrink-0">
+                保存
+              </Button>
+            </div>
+          </div>
+
+        )}
       </DialogContent>
     </Dialog>
   );
