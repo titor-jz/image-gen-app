@@ -68,6 +68,10 @@ function streamSyncGeneration(opts: {
           editForm.append("model", opts.model);
           editForm.append("prompt", opts.upstreamPrompt);
           editForm.append("size", opts.sizeParam);
+          // SVG 输出：edits 分支同样透传（漏传会导致图生图矢量化回 PNG）
+          if (opts.outputFormat === "svg") {
+            editForm.append("output_format", "svg");
+          }
           for (let i = 0; i < opts.imageFiles.length; i++) {
             const file = opts.imageFiles[i];
             if (file instanceof Blob) {
