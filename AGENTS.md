@@ -36,6 +36,7 @@ npm run deploy:cf      # Cloudflare 部署
 - **上游 HTTP 统一走 `lib/http-client.ts`**（双运行时自适应：Node/Vercel 用 undici——连接池 + ProxyAgent 代理；Cloudflare Workers 用全局 fetch，`proxyUrl` 在该运行时被忽略），不要绕过它自行选 fetch 实现。
 - **动图支持**：gpt-image 2.6 系可返回 GIF 动图，generate 路由按魔数嗅探 `mime`（`sniffImageMime`），下载后缀与结果卡 GIF 角标都依赖它；不要把 mime 写死回 `image/png`。动图由提示词驱动：UI「格式」选 GIF 后模型下拉只留实测能出动画的型号（`supportsAnimation`——**基础版 2.6 实测只出静图，仅 flare/sunburst 可靠**），且服务端在提示词前注入「生成无缝循环的GIF动图：」指令（`format` 字段，历史/回填仍存用户原文）。提示词里写「循环时长/帧率」类字眼实测会让动画失效变静图，帧数/时长参数中转也不透传——均不要加。
 - **中转无异步端点时同步生成必须流式保活**：async 404 回落同步后，整个生成期（flare 实测 38~41s）挂住连接，手机蜂窝网络会掐断长请求（报 failed to fetch 但上游已扣费）。generate 路由的同步回退分支返回 ndjson 流（`streamSyncGeneration`）：每 10s 一行心跳保活，最后一行 result/error 是载荷；客户端 `useImageGeneration` 按行解析。Workers 上游超时放宽到 95s（CF 边缘 100s 截断内），Vercel 维持 55s。
+- **节点异步能力记忆**：探测结果按节点 id 存 localStorage（`lib/node-capability.ts`，7 天过期自动重探）。同步型节点（无端点/假异步——task_id 超 15s 才返回）生成时带 `asyncMode=skip` 直接走流式同步，省探测往返且免假异步挂死；中转升级出真异步后一周内自动纠正。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。
 - 任务编排（并发、单张取消、指数退避轮询）在 `hooks/useImageGeneration.ts`；多节点/模型状态在 `lib/api-config-context.tsx`。
 

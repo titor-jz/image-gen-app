@@ -276,6 +276,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 客户端记忆该节点为同步型（无异步端点/假异步）时跳过 async 探测，直接流式同步
+    if (formData.get("asyncMode") === "skip") {
+      console.log("[generate] 节点记忆为同步型, 跳过 async 探测");
+      return streamSyncGeneration({
+        syncUrl,
+        model,
+        upstreamPrompt,
+        sizeParam: sizeMap[size] || "auto",
+        imageFiles,
+        baseURL,
+        apiKey,
+        proxyUrl: proxyUrl || undefined,
+      });
+    }
+
     let res;
     try {
       res = await httpFormDataRequest(

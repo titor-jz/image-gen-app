@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { buildApiHeaders } from "@/lib/api-headers";
+import { getNodeCapability, setNodeCapability } from "@/lib/node-capability";
 import { useApiConfig } from "@/lib/api-config-context";
 import { saveSettings } from "@/lib/user-settings";
 import { buildCacheKey } from "@/lib/cache-key";
@@ -584,6 +585,12 @@ export function useImageGeneration(
         const controller = new AbortController();
         abortMapRef.current.set(task.id, controller);
 
+        // 节点异步能力记忆：已知同步型（无端点/假异步）的节点跳过 async 探测，
+        // 服务端直接走同步流式保活；无记忆或已过期则让服务端探测并回写
+        const nodeKey = taskNode.id;
+        const capability = getNodeCapability(nodeKey);
+        const startedAt = Date.now();
+
         try {
           // 每任务用自己节点的鉴权配置（跨节点对比时两任务走不同线路）
           const headers = buildApiHeaders({
@@ -597,6 +604,10 @@ export function useImageGeneration(
           formData.append("model", task.model);
           formData.append("size", size);
           formData.append("quality", quality);
+          // 节点记忆为同步型时告诉服务端跳过 async 探测（省往返 + 免假异步挂死）
+          if (capability && !capability.asyncCapable) {
+            formData.append("asyncMode", "skip");
+          }
           // 输出格式：gif 时服务端注入动图指令（gpt-image 2.6 的动图由提示词驱动）
           formData.append("format", outputFormat ?? "static");
           // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
@@ -672,6 +683,15 @@ export function useImageGeneration(
           } else {
             const text = await response.text();
             throw new ApiError("GEN_UPSTREAM_BAD_RESPONSE", text.slice(0, 200));
+          }
+
+          // 回写节点异步能力记忆：
+          //  - task_id 在 15s 内返回 = 真异步；超 15s 才回 = 假异步，记为同步型
+          //  - 走了流式同步分支（data 无 task_id）= 无可用异步端点，记为同步型
+          //  - 已记忆为同步型时不再回写（skip 生效，本次结果不构成新证据）
+          const elapsedSec = (Date.now() - startedAt) / 1000;
+          if (!capability || capability.asyncCapable) {
+            setNodeCapability(nodeKey, Boolean(data.task_id) && elapsedSec < 15);
           }
 
           let result: GenerateResult;
