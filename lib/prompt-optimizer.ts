@@ -90,8 +90,6 @@ export interface OptimizePlan {
   requestText: string;
   /** 上一版结果：换版时交给模型"不要雷同" */
   avoid?: string;
-  /** 本地兜底的版本号（换版时沿用并递增） */
-  variant: number;
   /** 当前文本是否就是上一版结果（= 用户连续点了第二次） */
   isReoptimize: boolean;
 }
@@ -108,7 +106,6 @@ export function planOptimize(input: {
   prompt: string;
   lastResult: string | null;
   base: string;
-  variant: number;
 }): OptimizePlan {
   const current = input.prompt.trim();
   const isReoptimize = input.lastResult !== null && current === input.lastResult;
@@ -119,7 +116,6 @@ export function planOptimize(input: {
     base: isReoptimize && storedBase ? storedBase : current,
     requestText: current,
     avoid: isReoptimize ? input.lastResult ?? undefined : undefined,
-    variant: isReoptimize ? input.variant : 0,
     isReoptimize,
   };
 }

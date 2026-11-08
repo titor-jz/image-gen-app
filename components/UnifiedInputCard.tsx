@@ -500,9 +500,9 @@ export function UnifiedInputCard({
               {outputFormat === "svg" && (
                 <span
                   className="inst-label text-muted-foreground"
-                  title="已透传 SVG 输出参数，画幅即画布比例（viewBox）。适合图标/Logo/扁平插画；写实照片类内容不适合矢量风格。注意：带参考图的图生图矢量化依赖中转渠道支持（当前多数不支持，会报错）"
+                  title="已透传 SVG 输出参数，画幅即画布比例（viewBox）。适合图标/Logo/扁平插画。注意：官方模型仅支持纯文字生成 SVG（图生图端点不支持 SVG、不接受参考图），写实照片类内容也不适合矢量风格"
                 >
-                  已透传 SVG 输出 · 画幅即画布比例 · 带参考图暂不支持
+                  已透传 SVG 输出 · 画幅即画布比例 · 仅纯文字
                 </span>
               )}
             </div>

@@ -4,8 +4,7 @@
  * usePromptOptimize - 「AI 优化提示词」的交互逻辑
  *
  * 主路径：POST /api/optimize → 用节点上游的对话模型改写（无状态透传，见 app/api/optimize/route.ts）。
- * 失败时 **fail-open**：不改动原文，toast 说明原因；要不要退回本地规则**由用户点 toast 里的
- * 「用本地规则」决定**——不静默降级到已知不贴合的模板输出（这是 2026-10 首轮实测的教训）。
+ * 失败时 **fail-open**：不改动原文，toast 说明原因——保留原文比静默降级更安全。
  *
  * 文本记账：
  *  - 记住「原文」与「上次产物」：连点第二次以原文为基底换一版，并把上一版交给模型避免雷同；
@@ -17,7 +16,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { buildApiHeaders } from "@/lib/api-headers";
 import { getErrorMessage, parseErrorResponse } from "@/lib/error-messages";
-import { enhancePrompt } from "@/lib/prompt-enhancer";
 import { planOptimize } from "@/lib/prompt-optimizer";
 
 /** 固定 id：连点时替换同一条 toast，避免堆叠（撤销目标始终是原文，替换无副作用） */
@@ -51,8 +49,6 @@ export function usePromptOptimize({
   const baseRef = useRef("");
   /** 上次优化产物：用于识别"当前文本就是我生成的"，从而连点换稿而不是层层叠加 */
   const lastResultRef = useRef<string | null>(null);
-  /** 本地规则的版本轮换计数（仅兜底用） */
-  const variantRef = useRef(0);
   /** 请求在途标记：双保险（loading 状态对快速连点不够及时） */
   const inFlightRef = useRef(false);
   /** 上次成功使用的对话模型：下次直接指定，省掉服务端探测 /models 与逐个试模型的开销 */
@@ -73,26 +69,6 @@ export function usePromptOptimize({
     onPromptChange(baseRef.current);
   }, [onPromptChange]);
 
-  const applyLocal = useCallback(
-    (base: string, variant: number) => {
-      const { text, added } = enhancePrompt(base, variant);
-      variantRef.current = variant + 1;
-      if (added === 0) {
-        toast.info("提示词已经足够完整，未做改动", { id: TOAST_ID });
-        return;
-      }
-      baseRef.current = base;
-      lastResultRef.current = text;
-      onPromptChange(text);
-      toast.success(`已用本地规则优化（补充 ${added} 处细节）`, {
-        id: TOAST_ID,
-        duration: 6000,
-        action: { label: "撤销", onClick: undo },
-      });
-    },
-    [onPromptChange, undo]
-  );
-
   const optimize = useCallback(async () => {
     if (!prompt.trim() || inFlightRef.current) return;
 
@@ -101,7 +77,6 @@ export function usePromptOptimize({
       prompt,
       lastResult: lastResultRef.current,
       base: baseRef.current,
-      variant: variantRef.current,
     });
     if (!plan.base) return;
 
@@ -137,7 +112,6 @@ export function usePromptOptimize({
             err.code === "OPT_NO_CHAT_MODEL"
               ? "已保留原文。请在设置里配置「提示词优化接口」（Base URL / Key / 模型）"
               : [err.details, "已保留原文"].filter(Boolean).join(" · "),
-          action: { label: "用本地规则", onClick: () => applyLocal(plan.base, plan.variant) },
         });
         return;
       }
@@ -151,7 +125,6 @@ export function usePromptOptimize({
         toast.error(getErrorMessage("OPT_BAD_RESPONSE"), {
           id: TOAST_ID,
           duration: 10000,
-          action: { label: "用本地规则", onClick: () => applyLocal(plan.base, plan.variant) },
         });
         return;
       }
@@ -170,7 +143,6 @@ export function usePromptOptimize({
 
       baseRef.current = plan.base;
       lastResultRef.current = optimized;
-      variantRef.current = plan.variant + 1;
       onPromptChange(optimized);
       toast.success("已用 AI 优化提示词", {
         id: TOAST_ID,
@@ -185,13 +157,12 @@ export function usePromptOptimize({
         id: TOAST_ID,
         duration: 10000,
         description: "已保留原文",
-        action: { label: "用本地规则", onClick: () => applyLocal(plan.base, plan.variant) },
       });
     } finally {
       inFlightRef.current = false;
       setLoading(false);
     }
-  }, [prompt, onPromptChange, apiKey, baseUrl, proxyUrl, size, hasReference, optimizeModel, applyLocal, undo]);
+  }, [prompt, onPromptChange, apiKey, baseUrl, proxyUrl, size, hasReference, optimizeModel, undo]);
 
   return { optimize, loading };
 }
