@@ -92,7 +92,15 @@ export const SIZES: { value: AspectRatio; label: string }[] = [
 export const OUTPUT_FORMATS: { value: OutputFormat; label: string }[] = [
   { value: "static", label: "静图" },
   { value: "gif", label: "GIF 动图" },
+  { value: "svg", label: "SVG 矢量图" },
 ];
+
+/** SVG 导出为 2.6 全家族能力（基础版/flare 实测均出真矢量），≥2.6 即可 */
+function supportsSvg(modelId: string): boolean {
+  const m = /gpt-image-(\d+)(?:\.(\d+))?/i.exec(modelId);
+  if (!m) return false;
+  return Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2] ?? 0) >= 6);
+}
 
 /** gpt-image ≥2.6 才可能支持动图输出；2.6 系里实测仅 flare/sunburst 变体出动画
  *  （基础版 2.6 同提示词实测只出静图），非 gpt-image 系一律按静图处理 */
@@ -159,23 +167,22 @@ export function UnifiedInputCard({
   });
   const modelBOptions = isCrossNode && modelsB ? modelsB : models;
 
-  // 动图模式：模型列表只留支持动图的型号；没有任何支持型号时回退全量（避免死下拉）
-  const animatedModels = models.filter((m) => supportsAnimation(m.id));
-  const gifCapable = outputFormat === "gif" && animatedModels.length > 0;
-  const selectableModels = gifCapable ? animatedModels : models;
-  const selectableModelB = gifCapable
-    ? modelBOptions.filter((m) => supportsAnimation(m.id)).length > 0
-      ? modelBOptions.filter((m) => supportsAnimation(m.id))
-      : modelBOptions
-    : modelBOptions;
+  // 按输出格式过滤模型：GIF 仅 flare/sunburst（基础版 2.6 实测静图）；
+  // SVG 需 ≥2.6（全家族实测）；静图不限。无匹配型号时回退全量（避免死下拉）
+  const requiredCapable =
+    outputFormat === "gif" ? supportsAnimation : outputFormat === "svg" ? supportsSvg : null;
+  const capableModels = requiredCapable ? models.filter((m) => requiredCapable(m.id)) : models;
+  const selectableModels = capableModels.length > 0 ? capableModels : models;
+  const capableModelB = requiredCapable ? modelBOptions.filter((m) => requiredCapable(m.id)) : modelBOptions;
+  const selectableModelB = capableModelB.length > 0 ? capableModelB : modelBOptions;
 
-  // 切到动图且当前模型不支持时，自动切到第一个支持动图的型号
+  // 切换格式后当前模型不支持时，自动切到第一个支持的型号
   useEffect(() => {
-    if (!gifCapable) return;
+    if (!requiredCapable) return;
     if (selectableModels.some((m) => m.id === selectedModel)) return;
     if (modelsLoading && models.length === 0) return;
     if (selectableModels.length) onModelChange(selectableModels[0].id);
-  }, [gifCapable, selectableModels, selectedModel, onModelChange, modelsLoading, models.length]);
+  }, [requiredCapable, selectableModels, selectedModel, onModelChange, modelsLoading, models.length]);
 
   // 弹窗打开时锚定到 textarea 下方；滚动/缩放窗口时跟随。
   // 初始定位/复位经 rAF 异步执行，避免在 effect 体内同步 setState（级联渲染）
@@ -488,6 +495,14 @@ export function UnifiedInputCard({
                   title="服务端会自动在提示词前后加动图与循环动作指令，历史里仍保留你的原文。注意：写实人像题材上游不支持生成动图（会得到静图），建议卡通/插画/动物等题材"
                 >
                   已自动加动图与循环动作指令 · 写实人像不支持
+                </span>
+              )}
+              {outputFormat === "svg" && (
+                <span
+                  className="inst-label text-muted-foreground"
+                  title="已透传 SVG 输出参数，画幅即画布比例（viewBox）。适合图标/Logo/扁平插画；写实照片类内容不适合矢量风格"
+                >
+                  已透传 SVG 输出 · 画幅即画布比例
                 </span>
               )}
             </div>

@@ -13,6 +13,11 @@ function sniffImageMime(b64: string): string {
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) return "image/png";
   if (bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  if (bytes[0] === 0x3c) {
+    // 文本类：SVG（<?xml… 或 <svg… 开头）
+    const head = Buffer.from(b64, "base64").subarray(0, 256).toString("latin1");
+    if (head.includes("<svg") || head.includes("<?xml")) return "image/svg+xml";
+  }
   return "image/png";
 }
 
@@ -31,6 +36,7 @@ function streamSyncGeneration(opts: {
   baseURL: string;
   apiKey: string;
   proxyUrl?: string;
+  outputFormat: "static" | "gif" | "svg";
 }): NextResponse {
   const stream = new ReadableStream({
     async start(controller) {
@@ -78,7 +84,14 @@ function streamSyncGeneration(opts: {
           // 纯文生图走 /v1/images/generations（JSON: model/prompt/size/n）
           res = await httpJsonPost(
             opts.syncUrl,
-            { model: opts.model, prompt: opts.upstreamPrompt, size: opts.sizeParam, n: 1 },
+            {
+              model: opts.model,
+              prompt: opts.upstreamPrompt,
+              size: opts.sizeParam,
+              n: 1,
+              // SVG 输出：透传 output_format=svg（实测返回真矢量 <svg> XML）
+              ...(opts.outputFormat === "svg" ? { output_format: "svg" } : {}),
+            },
             { Authorization: `Bearer ${opts.apiKey}` },
             opts.proxyUrl
           );
@@ -238,8 +251,10 @@ export async function POST(request: NextRequest) {
     const model = (formData.get("model") as string) || "gpt-image-2";
     const size = (formData.get("size") as string) || "auto";
     const quality = (formData.get("quality") as string) || "1k";
-    // 输出格式：gif=动图（gpt-image 2.6 的动图由提示词驱动，见 AGENTS.md 动图支持）
-    const outputFormat = (formData.get("format") as string) === "gif" ? "gif" : "static";
+    // 输出格式：gif=动图（提示词驱动）；svg=矢量图（透传 output_format 参数）
+    const fmtRaw = formData.get("format") as string;
+    const outputFormat: "static" | "gif" | "svg" =
+      fmtRaw === "gif" || fmtRaw === "svg" ? fmtRaw : "static";
     const imageFiles = formData.getAll("images") as (File | Blob)[];
 
     if (!prompt) {
@@ -275,6 +290,10 @@ export async function POST(request: NextRequest) {
     form.append("size", upstreamSize);
     form.append("quality", QUALITY_MAP[quality] || "low");
     form.append("response_format", "url");
+    // SVG 输出：透传 output_format=svg（实测中转支持，返回真矢量 <svg> XML）
+    if (outputFormat === "svg") {
+      form.append("output_format", "svg");
+    }
 
     for (let i = 0; i < imageFiles.length; i++) {
       const file = imageFiles[i];
@@ -293,6 +312,7 @@ export async function POST(request: NextRequest) {
         upstreamPrompt,
         sizeParam: upstreamSize,
         imageFiles,
+        outputFormat,
         baseURL,
         apiKey,
         proxyUrl: proxyUrl || undefined,
@@ -319,6 +339,7 @@ export async function POST(request: NextRequest) {
           upstreamPrompt,
           sizeParam: upstreamSize,
           imageFiles,
+          outputFormat,
           baseURL,
           apiKey,
           proxyUrl: proxyUrl || undefined,

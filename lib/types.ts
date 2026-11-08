@@ -42,8 +42,8 @@ export interface HistoryRecord {
   createdAt: number;
 }
 
-/** 输出格式：static=静图（默认）；gif=动图（仅 gpt-image ≥2.6 支持） */
-export type OutputFormat = "static" | "gif";
+/** 输出格式：static=静图（默认）；gif=动图（仅 flare/sunburst）；svg=矢量图（≥2.6 全家族） */
+export type OutputFormat = "static" | "gif" | "svg";
 
 export interface AppSettings {
   apiKey: string;

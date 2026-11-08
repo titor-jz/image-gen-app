@@ -17,6 +17,12 @@ export function getResultImageSrc(result: GenerateResult): string {
 }
 
 /** 下载单张（浏览器/PWA） */
+/** mime → 下载后缀（image/svg+xml 这类带 + 的要特殊映射） */
+function extOf(mime: string): string {
+  if (mime === "image/svg+xml") return "svg";
+  return mime.split("/")[1] || "png";
+}
+
 export async function downloadResult(result: GenerateResult): Promise<void> {
   try {
     // 已有 blob URL 直接使用，零额外转换；否则从 dataURL 走一次 fetch 转 blob
@@ -31,7 +37,7 @@ export async function downloadResult(result: GenerateResult): Promise<void> {
     }
     const link = document.createElement("a");
     link.href = downloadUrl;
-    link.download = `generated-${Date.now()}.${result.mime.split("/")[1] || "png"}`;
+    link.download = `generated-${Date.now()}.${extOf(result.mime)}`;
     link.click();
     // 仅在本次新建的 URL 上 revoke，复用的 imageUrl 不能动
     if (needsRevoke && downloadUrl) {
