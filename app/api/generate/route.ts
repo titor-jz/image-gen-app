@@ -247,9 +247,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: body }, { status });
     }
 
-    // 动图模式统一注入指令：用户没写动图要求时模型会回静图；历史/回填仍存用户原文
+    // 动图模式注入两段指令（实测缺一不可，历史/回填仍存用户原文）：
+    //  1. 前缀声明 GIF 动图；2. 追加循环动态要求——只有前缀时，静态描述类提示词
+    //     （如「XX形象的卡通图」）模型会回静图（W1/W2 对照实测）
     const upstreamPrompt =
-      outputFormat === "gif" ? `生成无缝循环的GIF动图：${prompt}` : prompt;
+      outputFormat === "gif"
+        ? `生成无缝循环的GIF动图：${prompt}，画面包含持续的循环动态动作，帧与帧之间连续变化`
+        : prompt;
 
     // 与输入框 maxLength / 计数同源（lib/prompt-rules.ts），UI 与服务端不会各说各话
     if (prompt.length > MAX_PROMPT_CHARS) {
@@ -259,12 +263,16 @@ export async function POST(request: NextRequest) {
 
     const url = `${baseURL}/images/generations/async`;
     const syncUrl = `${baseURL}/images/generations`;
+    const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
+    // 上游 2.6 动图管线实测不支持 size:"auto"（E/F 组静图 vs G 组具体尺寸出动画），
+    // GIF 模式下 auto 换成具体尺寸——出图画幅仍由模型自定（实测其无视请求尺寸）
+    const upstreamSize =
+      sizeMap[size] === "auto" && outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
     // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
     const form = createFormData();
     form.append("model", model);
     form.append("prompt", upstreamPrompt);
-    const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
-    form.append("size", sizeMap[size] || "auto");
+    form.append("size", upstreamSize);
     form.append("quality", QUALITY_MAP[quality] || "low");
     form.append("response_format", "url");
 
@@ -283,7 +291,7 @@ export async function POST(request: NextRequest) {
         syncUrl,
         model,
         upstreamPrompt,
-        sizeParam: sizeMap[size] || "auto",
+        sizeParam: upstreamSize,
         imageFiles,
         baseURL,
         apiKey,
@@ -309,7 +317,7 @@ export async function POST(request: NextRequest) {
           syncUrl,
           model,
           upstreamPrompt,
-          sizeParam: sizeMap[size] || "auto",
+          sizeParam: upstreamSize,
           imageFiles,
           baseURL,
           apiKey,
