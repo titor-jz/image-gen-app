@@ -476,8 +476,11 @@ export function UnifiedInputCard({
               <span className="inst-label w-9 shrink-0">格式</span>
               <SelectChip value={outputFormat} onChange={onOutputFormatChange} options={OUTPUT_FORMATS} />
               {outputFormat === "gif" && (
-                <span className="inst-label text-muted-foreground" title="服务端会自动在提示词前加动图指令，历史里仍保留你的原文">
-                  自动加动图指令
+                <span
+                  className="inst-label text-muted-foreground"
+                  title="服务端会自动在提示词前加动图指令，历史里仍保留你的原文。注意：写实人像题材上游不支持生成动图（会得到静图），建议卡通/插画/动物等题材，并在提示词里描述循环动作"
+                >
+                  自动加动图指令 · 写实人像不支持
                 </span>
               )}
             </div>
