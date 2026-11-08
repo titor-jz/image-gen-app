@@ -44,14 +44,23 @@ function streamSyncGeneration(opts: {
       let closed = false;
       const send = (obj: Record<string, unknown>) => {
         if (closed) return;
-        controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+        try {
+          controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          // 客户端断开（cancel）后 enqueue 会抛错：静默标记关闭，等 finally 收尾
+          closed = true;
+        }
       };
       const heartbeat = setInterval(() => send({ type: "heartbeat" }), 10000);
       const finish = () => {
         if (closed) return;
         closed = true;
         clearInterval(heartbeat);
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // 流已被取消：无需收尾
+        }
       };
       const fail = (status: number, code: ErrorCode, message: string) => {
         const { body } = errorResponse(code, message);
@@ -284,8 +293,9 @@ export async function POST(request: NextRequest) {
     const syncUrl = `${baseURL}/images/generations`;
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
     // 上游 2.6 动图管线对 size 挑剔：实测 1024x1024 / 2048x1152 出动画，
-    // "auto" 与 3072x3072（4K 档）都静默回退静图（E/F/I/J 组对照）——
-    // 且动图输出尺寸本就由模型自定（无视请求尺寸），GIF 模式统一送 1024x1024
+    // "auto"、3072x3072（4K 档）与超宽尺寸都静默回退静图（E/F/I/J 组对照）——
+    // 且动图输出尺寸/画幅本就由模型自定（无视请求尺寸），GIF 模式一律送 1024x1024
+    //（画幅选择器在 GIF 模式下已禁用）
     const upstreamSize = outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
     // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
     const form = createFormData();
