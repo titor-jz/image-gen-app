@@ -29,6 +29,8 @@ export function SelectChip<T extends string>({
   options,
   className = "",
   displayLabel,
+  disabled = false,
+  disabledTitle,
 }: {
   value: T;
   onChange: (v: T) => void;
@@ -36,6 +38,10 @@ export function SelectChip<T extends string>({
   className?: string;
   /** 覆盖触发按钮文案（如列表加载中时显示「模型加载中…」） */
   displayLabel?: string;
+  /** 禁用交互（如 GIF 模式下画幅由模型自定） */
+  disabled?: boolean;
+  /** 禁用时的说明文案（title 悬停提示） */
+  disabledTitle?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{
@@ -109,8 +115,10 @@ export function SelectChip<T extends string>({
       <button
         ref={btnRef}
         type="button"
+        disabled={disabled}
+        title={disabled ? disabledTitle : undefined}
         onClick={() => (open ? close() : setOpen(true))}
-        className={`toolbar-chip ${open ? "border-border bg-accent/60" : ""}`}
+        className={`toolbar-chip ${open ? "border-border bg-accent/60" : ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         aria-expanded={open}
         aria-haspopup="listbox"
       >

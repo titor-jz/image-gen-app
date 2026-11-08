@@ -264,10 +264,10 @@ export async function POST(request: NextRequest) {
     const url = `${baseURL}/images/generations/async`;
     const syncUrl = `${baseURL}/images/generations`;
     const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
-    // 上游 2.6 动图管线实测不支持 size:"auto"（E/F 组静图 vs G 组具体尺寸出动画），
-    // GIF 模式下 auto 换成具体尺寸——出图画幅仍由模型自定（实测其无视请求尺寸）
-    const upstreamSize =
-      sizeMap[size] === "auto" && outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
+    // 上游 2.6 动图管线对 size 挑剔：实测 1024x1024 / 2048x1152 出动画，
+    // "auto" 与 3072x3072（4K 档）都静默回退静图（E/F/I/J 组对照）——
+    // 且动图输出尺寸本就由模型自定（无视请求尺寸），GIF 模式统一送 1024x1024
+    const upstreamSize = outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
     // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
     const form = createFormData();
     form.append("model", model);

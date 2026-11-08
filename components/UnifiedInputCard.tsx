@@ -463,10 +463,17 @@ export function UnifiedInputCard({
               </div>
             </div>
 
-            {/* 画幅 + 质量 */}
+            {/* 画幅 + 质量：GIF 模式下画幅禁用（上游动图管线挑剔尺寸，统一 1024x1024，
+                输出画幅由模型自定），质量不受限（实测 low/high 均可动画） */}
             <div className="flex items-center gap-3">
               <span className="inst-label w-9 shrink-0">画幅</span>
-              <SelectChip value={selectedSize} onChange={onSizeChange} options={SIZES} />
+              <SelectChip
+                value={selectedSize}
+                onChange={onSizeChange}
+                options={SIZES}
+                disabled={outputFormat === "gif"}
+                disabledTitle="动图尺寸由模型自定"
+              />
               <span className="inst-label shrink-0">质量</span>
               <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
             </div>
@@ -478,9 +485,9 @@ export function UnifiedInputCard({
               {outputFormat === "gif" && (
                 <span
                   className="inst-label text-muted-foreground"
-                  title="服务端会自动在提示词前加动图指令，历史里仍保留你的原文。注意：写实人像题材上游不支持生成动图（会得到静图），建议卡通/插画/动物等题材，并在提示词里描述循环动作"
+                  title="服务端会自动在提示词前后加动图与循环动作指令，历史里仍保留你的原文。注意：写实人像题材上游不支持生成动图（会得到静图），建议卡通/插画/动物等题材"
                 >
-                  自动加动图指令 · 写实人像不支持
+                  已自动加动图与循环动作指令 · 写实人像不支持
                 </span>
               )}
             </div>
