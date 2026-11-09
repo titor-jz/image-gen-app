@@ -54,6 +54,38 @@ export function upstreamUrlError(raw: string): string | null {
   }
   return null;
 }
+/**
+ * 代理 URL 校验：比 baseURL 放宽一条 —— **允许回环地址**。
+ *
+ * 为什么必须放宽：桌面代理（Clash/Mihomo 等）就监听在 127.0.0.1:789x，
+ * 本地开发时上游只能经它出去。若套用 baseURL 那套「禁一切内网」的规则，
+ * 本地代理配置永远无法通过（表现为「上游地址不合法」，而不是网络错误）。
+ *
+ * 仍拒绝：链路本地 / 云元数据（169.254/16）、其他私网段、0/8、CGNAT ——
+ * 也就是说放宽的只是「进程自己这台机器」，不是整个内网。
+ */
+export function proxyUrlError(raw: string): string | null {
+  const reason = upstreamUrlError(raw);
+  if (!reason) return null;
+  const host = hostOf(raw);
+  return isLoopbackHost(host) ? null : reason;
+}
+
+/** 取规范化后的主机名；解析失败返回空串 */
+function hostOf(raw: string): string {
+  try {
+    return new URL(raw.trim()).hostname.replace(/^[/, "").replace(/]$/, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isLoopbackHost(host: string): boolean {
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  const v4 = parseIpv4(host);
+  if (v4) return v4[0] === 127;
+  return host === "::1";
+}
 
 /** 点分四段解析（仅接受已由 URL 规范化的标准形式） */
 function parseIpv4(host: string): [number, number, number, number] | null {

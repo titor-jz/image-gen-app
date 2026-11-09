@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import type { ErrorCode } from "@/lib/error-messages";
-import { upstreamUrlError } from "@/lib/url-guard";
+import { upstreamUrlError, proxyUrlError } from "@/lib/url-guard";
 
 /**
  * 上游配置解析：Key 与 BaseURL 同源不变式
@@ -26,7 +26,8 @@ export function resolveUpstream(request: NextRequest): UpstreamResult {
   if (headerKey) {
     const baseURL = request.headers.get("x-base-url")?.trim() || DEFAULT_BASE_URL;
     const proxyUrl = request.headers.get("x-proxy-url")?.trim() || "";
-    const reason = upstreamUrlError(baseURL) ?? (proxyUrl ? upstreamUrlError(proxyUrl) : null);
+    // 代理用更宽的规则：本地代理（127.0.0.1:789x）是正常配置，不该被当内网拦掉
+    const reason = upstreamUrlError(baseURL) ?? (proxyUrl ? proxyUrlError(proxyUrl) : null);
     if (reason) {
       return { ok: false, errorCode: "REQ_INVALID_UPSTREAM_URL", reason };
     }
