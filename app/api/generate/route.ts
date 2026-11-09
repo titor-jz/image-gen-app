@@ -32,6 +32,8 @@ function streamSyncGeneration(opts: {
   model: string;
   upstreamPrompt: string;
   sizeParam: string;
+  /** 上游 quality（low/medium/high）——图生图此前漏传，导致画质选项对它不生效 */
+  qualityParam: string;
   imageFiles: (File | Blob)[];
   baseURL: string;
   apiKey: string;
@@ -85,6 +87,8 @@ function streamSyncGeneration(opts: {
               contentType: "text/plain; charset=utf-8",
             },
             { name: "size", value: opts.sizeParam },
+            // 质量档位：图生图/局部重绘此前完全没传，质量选择对这条路径形同不存在
+            { name: "quality", value: opts.qualityParam },
           ];
           // SVG 输出：edits 分支同样透传（漏传会导致图生图矢量化回 PNG）
           if (opts.outputFormat === "svg") {
@@ -324,6 +328,8 @@ export async function POST(request: NextRequest) {
     // 且动图输出尺寸/画幅本就由模型自定（无视请求尺寸），GIF 模式一律送 1024x1024
     //（画幅选择器在 GIF 模式下已禁用）
     const upstreamSize = outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
+    // 质量参数：img2img / 局部重绘也要传（此前只在纯文生图表单里出现）
+    const qualityValue = QUALITY_MAP[quality] || "low";
     // multipart 部件（手写编码，文本字段声明 charset=utf-8——中文提示词的必需项，
     // 见 lib/http-client.ts 的 buildMultipart）
     const parts: MultipartPart[] = [
@@ -360,6 +366,7 @@ export async function POST(request: NextRequest) {
         model,
         upstreamPrompt,
         sizeParam: upstreamSize,
+        qualityParam: qualityValue,
         imageFiles,
         outputFormat,
         maskFile,
@@ -377,6 +384,7 @@ export async function POST(request: NextRequest) {
         model,
         upstreamPrompt,
         sizeParam: upstreamSize,
+        qualityParam: qualityValue,
         imageFiles,
         outputFormat,
         baseURL,
@@ -404,6 +412,7 @@ export async function POST(request: NextRequest) {
           model,
           upstreamPrompt,
           sizeParam: upstreamSize,
+          qualityParam: qualityValue,
           imageFiles,
           outputFormat,
           baseURL,
