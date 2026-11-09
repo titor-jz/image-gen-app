@@ -25,11 +25,9 @@ interface ResultGridProps {
    * 不传则用内置的展开预览（桌面）。
    */
   onPreviewRequest?: (index: number) => void;
-  /** 以某张结果为底图做局部重绘；不传则结果卡不显示入口 */
-  onInpaint?: (result: GenerateResult) => void;
 }
 
-export function ResultGrid({ results, hasRunning, onPreviewRequest, onInpaint }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
@@ -146,7 +144,6 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onInpaint }:
                     onExpand={handleExpand}
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
-                    onInpaint={onInpaint}
                     appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
                   />
@@ -156,7 +153,6 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onInpaint }:
                     onExpand={handleExpand}
                     onDownload={handleDownload}
                     onSaveToGallery={handleSaveToGallery}
-                    onInpaint={onInpaint}
                     appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
                   />
@@ -172,7 +168,6 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onInpaint }:
               onExpand={handleExpand}
               onDownload={handleDownload}
               onSaveToGallery={handleSaveToGallery}
-              onInpaint={onInpaint}
               appMode={canSaveToGallery}
               getImageSrc={getImageSrc}
             />

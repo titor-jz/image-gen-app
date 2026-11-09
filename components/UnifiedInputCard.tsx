@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2, RotateCcw, PenLine } from "lucide-react";
+import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { PromptGuide } from "@/components/PromptGuide";
@@ -36,21 +36,14 @@ interface UnifiedInputCardProps {
   /** 参考图清晰度模式：自动压缩 / 高清压缩 / 原图直传（选择持久化） */
   refQuality: RefQuality;
   onRefQualityChange: (q: RefQuality) => void;
-  /** 已标注过蒙版（局部重绘），入口按钮显示为「已标注」实心态 */
-  maskReady?: boolean;
-  /** 重绘区可视化图（只有可重绘区是橙色，其余透明），叠在参考图缩略图上 */
-  maskOverlayUrl?: string;
+
   /** 当前节点各清晰度档的实测能力（被动学习自真实生成，未测过的档位不显示标记） */
   sizeCapability?: NodeSizeCapability | null;
   /** 探测该节点最高可用档位：传 undefined 不显示入口 */
   onProbeSize?: () => void;
   /** idle / confirm（再点一次才真跑）/ running */
   probeState?: "idle" | "confirm" | "running";
-  /**
-   * 打开蒙版编辑器。**传 undefined = 不提供局部重绘入口**——
-   * 可用条件（格式=静态、参考图恰好 1 张）由调用方判断，组件不重复实现。
-   */
-  onOpenMaskEditor?: () => void;
+
   /** 支持直接传新数组或函数式更新（批量上传并发追加时必须用函数式，避免旧闭包互相覆盖） */
   onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
   /** 节点切换后新模型列表加载中（chip 显示加载提示，避免误以为旧列表可用） */
@@ -152,8 +145,8 @@ export function UnifiedInputCard({
   outputFormat, onOutputFormatChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
-  maskReady = false, maskOverlayUrl, sizeCapability,
-  onProbeSize, probeState = "idle", onOpenMaskEditor,
+  sizeCapability,
+  onProbeSize, probeState = "idle",
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate, onOptimizePrompt, optimizeLoading,
 }: UnifiedInputCardProps) {
@@ -367,11 +360,7 @@ export function UnifiedInputCard({
               onChange={handlePromptChange}
               onKeyDown={handlePromptKeyDown}
               onPaste={handlePaste}
-              placeholder={
-                maskReady
-                  ? "描述涂抹区要变成什么；改文字/标识时把新文字直接写出来，例如：把标题改成「新年狂欢」"
-                  : "在此处拖入图片，并写入提示词"
-              }
+              placeholder="在此处拖入图片，并写入提示词"
               /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
               className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
               maxLength={MAX_PROMPT_CHARS}
@@ -407,14 +396,7 @@ export function UnifiedInputCard({
                       className="h-full w-full object-cover transition-slow group-hover:scale-110"
                     />
                   </div>
-                  {/* 重绘区可视化：让用户看得见自己涂了多大一块 */}
-                  {maskOverlayUrl && i === 0 && (
-                    <img
-                      src={maskOverlayUrl}
-                      alt="局部重绘区域"
-                      className="pointer-events-none absolute inset-0 h-14 w-11 rounded-[2px] opacity-75"
-                    />
-                  )}
+
                   <button
                     type="button"
                     className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-md ring-2 ring-background transition-base hover:bg-destructive/90 sm:-top-1.5 sm:-right-1.5"
@@ -462,23 +444,7 @@ export function UnifiedInputCard({
               ]}
             />
 
-            {/* 局部重绘入口：只在调用方允许时出现（格式=静态 且 参考图恰好 1 张）。
-                不满足条件时不显示，而不是显示后禁用——少给无效信息 */}
-            {onOpenMaskEditor && referenceImages.length === 1 && (
-              <button
-                type="button"
-                onClick={onOpenMaskEditor}
-                className={`flex h-7 items-center gap-1.5 rounded-[2px] border px-2 text-xs transition-base ${
-                  maskReady
-                    ? "border-[color:var(--inst-accent)] bg-[color:var(--inst-accent)] text-white"
-                    : "border-[color:var(--inst-accent)] text-[color:var(--inst-accent)] hover:bg-[color:var(--inst-accent-weak)]"
-                }`}
-                aria-label={maskReady ? "重新标注局部重绘蒙版" : "标注局部重绘蒙版"}
-              >
-                <PenLine className="w-3.5 h-3.5" />
-                {maskReady ? "已标注" : "局部重绘"}
-              </button>
-            )}
+
 
             <span className="inst-label ml-auto hidden xl:inline">
               {referenceImages.length > 0

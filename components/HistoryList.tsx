@@ -6,23 +6,19 @@
  * 从 HistoryDrawer 抽出（纯搬移）。
  */
 
-import { Image as ImageIcon, Clock, PenLine, Trash2 } from "lucide-react";
+import { Image as ImageIcon, Clock, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { HistoryRecord } from "@/lib/types";
 
-export function HistoryItem({ record, onClick, onDelete, onInpaint }: {
+export function HistoryItem({ record, onClick, onDelete }: {
   record: HistoryRecord;
   onClick: (record: HistoryRecord) => void;
   onDelete: (id: string) => void;
-  /** 以该记录的首张图做局部重绘；不传则不渲染入口 */
-  onInpaint?: (record: HistoryRecord) => void;
 }) {
   const time = new Date(record.createdAt).toLocaleString("zh-CN", {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
   const firstResult = record.results[0];
-  /** 没存 b64 的旧记录没有可用底图，不显示局部重绘入口 */
-  const canInpaint = Boolean(firstResult?.b64_json);
 
   return (
     <div
@@ -43,21 +39,6 @@ export function HistoryItem({ record, onClick, onDelete, onInpaint }: {
           <span className="text-xs text-muted-foreground">{time}</span>
         </div>
       </div>
-      {/* 局部重绘：必须首图有 b64_json（没图就没有底图）。
-          触屏无 hover，移动端常驻显示；桌面保留 hover 显隐（与删除钮同一套）。
-          放在删除钮左边，避免误触破坏性操作。 */}
-      {canInpaint && onInpaint && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="w-9 h-9 sm:w-6 sm:h-6 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 press transition-base hover:bg-accent/60 shrink-0"
-          onClick={(e) => { e.stopPropagation(); onInpaint(record); }}
-          aria-label={`局部重绘 ${record.params.prompt.slice(0, 10)}`}
-          title="局部重绘"
-        >
-          <PenLine className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
-        </Button>
-      )}
       {/* 单条删除：触屏无 hover，移动端常驻显示；桌面保留 hover 显隐 */}
       <Button
         variant="ghost"
@@ -76,14 +57,11 @@ export function HistoryList({
   records,
   onSelectRecord,
   onDelete,
-  onInpaint,
   className = "p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] space-y-0.5",
 }: {
   records: HistoryRecord[];
   onSelectRecord: (record: HistoryRecord) => void;
   onDelete: (id: string) => void;
-  /** 以某条记录的首张图做局部重绘；不传则列表无入口 */
-  onInpaint?: (record: HistoryRecord) => void;
   /** 外层留白（抽屉默认；底部 Sheet 可覆盖） */
   className?: string;
 }) {
@@ -97,7 +75,7 @@ export function HistoryList({
       )}
       {records.map((record, i) => (
         <div key={record.id} className="animate-fade-up" style={{ animationDelay: `${Math.min(i * 30, 240)}ms` }}>
-          <HistoryItem record={record} onClick={onSelectRecord} onDelete={onDelete} onInpaint={onInpaint} />
+          <HistoryItem record={record} onClick={onSelectRecord} onDelete={onDelete} />
         </div>
       ))}
     </div>

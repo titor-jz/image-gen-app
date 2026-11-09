@@ -47,10 +47,10 @@ npm run deploy:cf      # Cloudflare 部署
 - **禁止在 Vercel/CF 公开部署的环境变量里配 `OPENAI_API_KEY`**：客户端未带 `x-api-key` 时路由会回落到服务端环境变量，等于把额度开放给所有访问者。且 BYO 端点架构本身即开放中继（`x-base-url` 可指向任意上游），公开部署需自行加鉴权/限流。
 - `scripts/**` 运行在 Node CommonJS 上下文，必须用 `require()`（已在 eslint 中豁免 no-require-imports），不要改成 ESM。
 - **multipart 的中文提示词必须声明 charset，否则被上游吞掉**：NewAPI 系中转对没有 `Content-Type` 的表单字段按 latin-1 解码，中文提示词变乱码 → 模型完全忽略提示词（表现为返回与提示词无关的内容、或多出一个杯子）。**undici 的 `FormData` 给文本字段只发 `Content-Disposition`、不带 charset**，所以图生图（走 multipart `/images/edits`）对中文提示词必然失效。修法是手写 multipart：`lib/http-client.ts` 的 `httpMultipartRequest`（文本部件默认带 `text/plain; charset=utf-8`）。纯文生图走 JSON 不受影响。**改这条链路时不要退回 `FormData`**，否则中文提示词静默失效（RFC 无错、只是语义丢了，最难查）。浏览器 → 自家 `/api/generate` 那一段不受影响：真实浏览器的 FormData 经 Next `request.formData()` 解析中文无损（curl 的 `-F` 反而不行，**用 curl 打在自家路由上测中文会得到假阴性**）。
-- **该中转不尊重 `mask`（局部重绘）**：`/images/edits` 接受 mask 并返回 200，但实测完全不按 mask 约束 —— 同一 prompt、互为补集的两张 mask 输出几乎相同（差异 0.0097）；全局提示词配局部 mask 时整张图都变；mask 指定 A 处、提示词说改 B 处时，改的是 B。**要用局部重绘必须靠客户端合成兜底**（出图后把 mask 外像素用原图盖回来），不能指望上游。详见 `docs/inpaint/PLAN.md`。
+- **该中转不尊重 `mask`（局部重绘）**：`/images/edits` 接受 mask 并返回 200，但实测完全不按 mask 约束 —— 同一 prompt、互为补集的两张 mask 输出几乎相同（差异 0.0097）；全局提示词配局部 mask 时整张图都变；mask 指定 A 处、提示词说改 B 处时，改的是 B。**局部重绘功能已下线**（2026-11-09，模型重绘立体中文大字质量不达标），但这条事实仍然成立：将来若重做，局部性只能靠客户端合成兜底，不能指望上游。详见 `docs/inpaint/PLAN.md`。
 - 验证生成结果**必须看画面内容**，不能只看 HTTP 200 / 尺寸 / mime：该中转曾返回与提示词完全无关的图。定量指标（区域 diff）+ 肉眼缩略图两条都要过。
 - Vercel serverless 请求体上限约 4.5MB，大参考图可能被平台直接拒。
-- 尺寸/质量映射（`SIZE_MAP` / `SIZE_4K_MAP` / `QUALITY_MAP`）在 `app/api/generate/route.ts`，与 gpt-image-2 档位绑定。
+- 尺寸/质量映射在 `lib/size-map.ts`（1K/2K/4K 三档各自的像素表 + `upstreamSizeFor`），**服务端路由与前端状态行共用同一份**——改档位只改这一处，别在路由里另建一张表（曾经的 bug：2K 档落回 1K 表，选 2K 仍出 1024×1024）。
 
 ## 文档
 

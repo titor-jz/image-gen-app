@@ -24,7 +24,6 @@ export type ErrorCode =
   | "REQ_MISSING_PROMPT"
   | "REQ_PROMPT_TOO_LONG"
   | "REQ_INVALID_UPSTREAM_URL"
-  | "REQ_MASK_NEEDS_SINGLE_IMAGE"
   // 上游 API
   | "GEN_UPSTREAM_NETWORK"
   | "GEN_UPSTREAM_BAD_RESPONSE"
@@ -66,7 +65,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   REQ_MISSING_PROMPT: "请输入提示词",
   REQ_PROMPT_TOO_LONG: "提示词过长，请精简后重试",
   REQ_INVALID_UPSTREAM_URL: "上游地址不合法（不允许内网/保留地址），请检查 API 节点配置",
-  REQ_MASK_NEEDS_SINGLE_IMAGE: "局部重绘需要且只能有 1 张参考图",
 
   // 上游
   GEN_UPSTREAM_NETWORK: "无法连接到上游 API，请检查网络与代理设置",
@@ -107,7 +105,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   REQ_MISSING_PROMPT: 400,
   REQ_PROMPT_TOO_LONG: 400,
   REQ_INVALID_UPSTREAM_URL: 400,
-  REQ_MASK_NEEDS_SINGLE_IMAGE: 400,
 
   GEN_UPSTREAM_NETWORK: 502,
   GEN_UPSTREAM_BAD_RESPONSE: 502,

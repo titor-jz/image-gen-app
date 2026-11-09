@@ -19,11 +19,9 @@ import type { HistoryRecord } from "@/lib/types";
 interface HistoryDrawerProps {
   onClose: () => void;
   onSelectRecord: (record: HistoryRecord) => void;
-  /** 以某条历史记录的首张图做局部重绘；不传则列表无入口 */
-  onInpaint?: (record: HistoryRecord) => void;
 }
 
-export function HistoryDrawer({ onClose, onSelectRecord, onInpaint }: HistoryDrawerProps) {
+export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
   const { records, load, remove, clearAll } = useHistoryRecords();
   // 清空历史的两步确认状态（应用内联确认，不用 window.confirm 弹窗）
   const [confirmingClear, setConfirmingClear] = useState(false);
@@ -84,7 +82,7 @@ export function HistoryDrawer({ onClose, onSelectRecord, onInpaint }: HistoryDra
           </div>
         </div>
         <ScrollArea className="flex-1 scrollbar-thin">
-          <HistoryList records={records} onSelectRecord={onSelectRecord} onDelete={handleDelete} onInpaint={onInpaint} />
+          <HistoryList records={records} onSelectRecord={onSelectRecord} onDelete={handleDelete} />
         </ScrollArea>
       </div>
     </>

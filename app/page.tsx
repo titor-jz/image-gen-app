@@ -41,7 +41,7 @@ import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
-import { maskOverlayDataUrl } from "@/lib/mask-composite";
+
 import { pixelSizeFor } from "@/lib/size-map";
 import { getNodeSizeCapability, type NodeSizeCapability } from "@/lib/node-size-capability";
 import { probeMaxTier } from "@/lib/probe-size";
@@ -49,7 +49,7 @@ import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
-import type { AspectRatio, GenerateResult, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
+import type { AspectRatio, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
   () => import("@/components/HistoryDrawer").then((m) => m.HistoryDrawer),
@@ -57,12 +57,6 @@ const HistoryDrawer = dynamic(
     ssr: false,
     loading: () => <HistoryDrawerSkeleton />,
   }
-);
-
-// 蒙版编辑器按需加载：只有做局部重绘时才需要这 ~900 行 canvas 逻辑
-const MaskEditor = dynamic(
-  () => import("@/components/MaskEditor").then((m) => m.MaskEditor),
-  { ssr: false }
 );
 
 export default function Home() {
@@ -83,15 +77,6 @@ export default function Home() {
   const [modelB, setModelB] = useState<string>("gpt-image-2");
   // 对比模式 B 侧节点（null = 跟随当前激活节点,即同节点对比）
   const [nodeBId, setNodeBId] = useState<string | null>(null);
-
-  // 1.5 局部重绘：蒙版 + 编辑器状态。
-  //     底图有三个来源（参考图行 / 结果卡 / 历史项），后两者会先把图回填成参考图，
-  //     所以「生成时的底图」永远是 referenceImages[0]，只有一套链路。
-  const [mask, setMask] = useState<Blob | null>(null);
-  const [maskEditor, setMaskEditor] = useState<{ open: boolean; imageUrl: string }>({
-    open: false,
-    imageUrl: "",
-  });
 
   // 2. 挂载后从 localStorage 同步用户上次的选择
   // 必须用 useEffect（而非 useState lazy init），因为 localStorage 在 SSR 时不存在，
@@ -197,7 +182,6 @@ export default function Home() {
     size: selectedSize,
     quality: selectedQuality,
     n: selectedN,
-    mask,
     compareMode,
     modelB: modelB as ModelInfo["id"],
     refQuality,
@@ -320,19 +304,7 @@ export default function Home() {
     }
   }, [setResults]);
 
-  // 6.3 局部重绘：三个入口共用的编排。
-  //     底图统一回填成「参考图区唯一那张」+ 蒙版，生成链路只有一套。
-  const refFromResult = useCallback(
-    (r: GenerateResult): ReferenceImage => ({
-      id: `ref-${r.id}-${Date.now()}`,
-      name: `result-${r.id.slice(-4)}.png`,
-      base64: `data:${r.mime};base64,${r.b64_json}`,
-      mimeType: r.mime,
-    }),
-    []
-  );
 
-  /** 蒙版只在「格式=静态 且 参考图恰好 1 张」时有意义（服务端同样的校验） */
   // 当前节点各清晰度档的实测能力（被动学习，见 lib/node-size-capability）。
   // 必须走 state + effect：localStorage 在 SSR 不存在，直接在 render/useMemo 里读会让
   // 服务端（无标记）与客户端首帧（有标记）的选项文案不一致 → hydration mismatch。
@@ -379,62 +351,6 @@ export default function Home() {
   // 状态行展示「这一档实际会出多少像素」——档位名与产出对不上时一眼能看出来
   const pixelSize = pixelSizeFor(selectedSize, selectedQuality);
 
-  const canInpaint = outputFormat === "static" && referenceImages.length === 1;
-  const maskOwnerId = referenceImages[0]?.id;
-  // 蒙版可视化：把「可重绘区」染成橙色，叠在参考图缩略图上。
-  // 之前只有「已标注」三个字，用户看不见涂了多大一块（涂大了会被整块重画）。
-  const [maskOverlayUrl, setMaskOverlayUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!mask) {
-      /* eslint-disable-next-line react-hooks/set-state-in-effect */
-      setMaskOverlayUrl(null);
-      return;
-    }
-    maskOverlayDataUrl(mask)
-      .then((url) => { if (!cancelled) setMaskOverlayUrl(url); })
-      .catch(() => { if (!cancelled) setMaskOverlayUrl(null); });
-    return () => { cancelled = true; };
-  }, [mask]);
-
-  // 参考图换了 / 数量变了 / 格式切走 → 旧蒙版的尺寸与语义都对不上了，必须丢弃
-  useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
-    if (!canInpaint) {
-      setMask(null);
-      setMaskEditor((prev) => (prev.open ? { open: false, imageUrl: "" } : prev));
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [canInpaint, maskOwnerId]);
-
-  /** 结果卡 / 全屏预览：把这张图当底图，直接进入涂抹 */
-  const handleInpaintResult = useCallback(
-    (result: GenerateResult) => {
-      const ref = refFromResult(result);
-      setReferenceImages([ref]);
-      setMask(null);
-      setMaskEditor({ open: true, imageUrl: ref.base64 });
-      toast.info("已载入这张图，涂出要重绘的区域", {
-        description: "然后写一句「这块要变成什么」",
-      });
-    },
-    [refFromResult]
-  );
-
-  /** 历史记录项：先按现有逻辑回填参数，再把这张图放成底图并进入涂抹 */
-  const handleInpaintRecord = useCallback(
-    (record: HistoryRecord) => {
-      const first = record.results[0];
-      handleSelectRecord(record);
-      if (!first?.b64_json) return;
-      const ref = refFromResult(first);
-      setReferenceImages([ref]);
-      setMask(null);
-      setMaskEditor({ open: true, imageUrl: ref.base64 });
-    },
-    [handleSelectRecord, refFromResult]
-  );
-
 
   return (
     /* ui-instrument：仪器面板视觉层（见 globals.css）。手机与桌面用同一套结构与背景，
@@ -446,7 +362,6 @@ export default function Home() {
         <HistoryDrawer
           onClose={() => setShowHistory(false)}
           onSelectRecord={handleSelectRecord}
-          onInpaint={handleInpaintRecord}
         />
       )}
 
@@ -490,21 +405,9 @@ export default function Home() {
               onGenerate={handleGenerate}
               onOptimizePrompt={handleOptimizePrompt}
               optimizeLoading={optimizeLoading}
-              maskReady={Boolean(mask)}
-              maskOverlayUrl={maskOverlayUrl ?? undefined}
               sizeCapability={sizeCapability}
               onProbeSize={activeNode ? handleProbeSize : undefined}
               probeState={probeState}
-              // 不满足可用条件时传 undefined = 不渲染入口
-              onOpenMaskEditor={
-                canInpaint
-                  ? () =>
-                      setMaskEditor({
-                        open: true,
-                        imageUrl: referenceImages[0]?.base64 ?? "",
-                      })
-                  : undefined
-              }
             />
           </div>
 
@@ -520,14 +423,6 @@ export default function Home() {
             </span>
             <span className="sep" aria-hidden="true" />
             <span>{outputFormat === "gif" ? "GIF 动图" : "静图"}</span>
-            {mask && (
-              <>
-                <span className="sep" aria-hidden="true" />
-                <span>
-                  局部重绘 <b>已标注</b>
-                </span>
-              </>
-            )}
             <span className="sep" aria-hidden="true" />
             <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
             <span className="sep" aria-hidden="true" />
@@ -574,27 +469,10 @@ export default function Home() {
               hasRunning={loading}
               // 触屏：点图走全屏预览（可左右滑、Capacitor 内直接存相册）
               onPreviewRequest={isMobile ? setPreviewIndex : undefined}
-              onInpaint={handleInpaintResult}
             />
           </div>
         </div>
       </main>
-
-      {/* 蒙版编辑器：叠在主界面上，不跳路由、不丢提示词 */}
-      <MaskEditor
-        open={maskEditor.open}
-        imageUrl={maskEditor.imageUrl}
-        onCancel={() => setMaskEditor((prev) => ({ ...prev, open: false }))}
-        onConfirm={(blob) => {
-          setMask(blob);
-          setMaskEditor((prev) => ({ ...prev, open: false }));
-          if (blob) {
-            toast.success("已标注重绘区域", {
-              description: "只有这块会被改动，其余保持原样",
-            });
-          }
-        }}
-      />
 
       {/* 全屏预览层：只在触屏点图后挂载 */}
       {isMobile && previewIndex !== null && results[previewIndex] && (

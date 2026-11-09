@@ -40,8 +40,7 @@ function streamSyncGeneration(opts: {
   apiKey: string;
   proxyUrl?: string;
   outputFormat: "static" | "gif" | "svg";
-  /** 局部重绘蒙版（仅图生图分支使用；alpha=0 = 可重绘区，见 docs/inpaint/PLAN.md） */
-  maskFile?: File | null;
+
 }): NextResponse {
   const stream = new ReadableStream({
     async start(controller) {
@@ -88,7 +87,7 @@ function streamSyncGeneration(opts: {
               contentType: "text/plain; charset=utf-8",
             },
             { name: "size", value: opts.sizeParam },
-            // 质量档位：图生图/局部重绘此前完全没传，质量选择对这条路径形同不存在
+            // 质量档位：图生图此前完全没传，质量选择对这条路径形同不存在
             { name: "quality", value: opts.qualityParam },
           ];
           // SVG 输出：edits 分支同样透传（漏传会导致图生图矢量化回 PNG）
@@ -105,11 +104,7 @@ function streamSyncGeneration(opts: {
               });
             }
           }
-          // 蒙版照传：上游目前会忽略它（实测，见 docs/inpaint/PLAN.md），
-          // 真正的局部性由客户端合成兜底；透传是为了上游将来支持时自动生效
-          if (opts.maskFile) {
-            editParts.push({ name: "mask", value: opts.maskFile, filename: "mask.png" });
-          }
+
           res = await httpMultipartRequest(
             `${opts.baseURL}/images/edits`,
             editParts,
@@ -257,20 +252,13 @@ export async function POST(request: NextRequest) {
     const outputFormat: "static" | "gif" | "svg" =
       fmtRaw === "gif" || fmtRaw === "svg" ? fmtRaw : "static";
     const imageFiles = formData.getAll("images") as (File | Blob)[];
-    // 局部重绘蒙版（可选）：上游接受参数但不按它生成，局部性由客户端合成保证
-    const maskEntry = formData.get("mask");
-    const maskFile = maskEntry instanceof Blob ? (maskEntry as File) : null;
+
 
     if (!prompt) {
       const { body, status } = errorResponse("REQ_MISSING_PROMPT");
       return NextResponse.json({ error: body }, { status });
     }
 
-    // 蒙版只能配恰好 1 张图：多图 + mask 的语义上游不支持，提前拦掉而不是静默出错
-    if (maskFile && imageFiles.length !== 1) {
-      const { body, status } = errorResponse("REQ_MASK_NEEDS_SINGLE_IMAGE");
-      return NextResponse.json({ error: body }, { status });
-    }
 
     // 动图模式注入两段指令（实测缺一不可，历史/回填仍存用户原文）：
     //  1. 前缀声明 GIF 动图；2. 追加循环动态要求——只有前缀时，静态描述类提示词
@@ -294,7 +282,7 @@ export async function POST(request: NextRequest) {
     // 且动图输出尺寸/画幅本就由模型自定（无视请求尺寸），GIF 模式一律送 1024x1024
     //（画幅选择器在 GIF 模式下已禁用）
     const upstreamSize = upstreamSizeFor(size, quality, outputFormat);
-    // 质量参数：img2img / 局部重绘也要传（此前只在纯文生图表单里出现）
+    // 质量参数：img2img 也要传（此前只在纯文生图表单里出现）
     const qualityValue = QUALITY_MAP[quality] || "low";
     // multipart 部件（手写编码，文本字段声明 charset=utf-8——中文提示词的必需项，
     // 见 lib/http-client.ts 的 buildMultipart）
@@ -323,23 +311,6 @@ export async function POST(request: NextRequest) {
           filename: (file as File).name || `input_${i}.png`,
         });
       }
-    }
-
-    // 局部重绘只对 /images/edits 有意义：直接走同步 edits，不探测异步端点
-    if (maskFile) {
-      return streamSyncGeneration({
-        syncUrl,
-        model,
-        upstreamPrompt,
-        sizeParam: upstreamSize,
-        qualityParam: qualityValue,
-        imageFiles,
-        outputFormat,
-        maskFile,
-        baseURL,
-        apiKey,
-        proxyUrl: proxyUrl || undefined,
-      });
     }
 
     // 客户端记忆该节点为同步型（无异步端点/假异步）时跳过 async 探测，直接流式同步
