@@ -41,6 +41,8 @@ import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
+import { maskOverlayDataUrl } from "@/lib/mask-composite";
+import { pixelSizeFor } from "@/lib/size-map";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -329,8 +331,26 @@ export default function Home() {
   );
 
   /** 蒙版只在「格式=静态 且 参考图恰好 1 张」时有意义（服务端同样的校验） */
+  // 状态行展示「这一档实际会出多少像素」——档位名与产出对不上时一眼能看出来
+  const pixelSize = pixelSizeFor(selectedSize, selectedQuality);
+
   const canInpaint = outputFormat === "static" && referenceImages.length === 1;
   const maskOwnerId = referenceImages[0]?.id;
+  // 蒙版可视化：把「可重绘区」染成橙色，叠在参考图缩略图上。
+  // 之前只有「已标注」三个字，用户看不见涂了多大一块（涂大了会被整块重画）。
+  const [maskOverlayUrl, setMaskOverlayUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!mask) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setMaskOverlayUrl(null);
+      return;
+    }
+    maskOverlayDataUrl(mask)
+      .then((url) => { if (!cancelled) setMaskOverlayUrl(url); })
+      .catch(() => { if (!cancelled) setMaskOverlayUrl(null); });
+    return () => { cancelled = true; };
+  }, [mask]);
 
   // 参考图换了 / 数量变了 / 格式切走 → 旧蒙版的尺寸与语义都对不上了，必须丢弃
   useEffect(() => {
@@ -426,6 +446,7 @@ export default function Home() {
               onOptimizePrompt={handleOptimizePrompt}
               optimizeLoading={optimizeLoading}
               maskReady={Boolean(mask)}
+              maskOverlayUrl={maskOverlayUrl ?? undefined}
               // 不满足可用条件时传 undefined = 不渲染入口
               onOpenMaskEditor={
                 canInpaint
@@ -445,9 +466,20 @@ export default function Home() {
             <span className="sep" aria-hidden="true" />
             <span>{SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize}</span>
             <span className="sep" aria-hidden="true" />
-            <span>{selectedQuality.toUpperCase()}</span>
+            <span>
+              {selectedQuality.toUpperCase()}
+              {pixelSize ? ` · ${pixelSize.width}×${pixelSize.height}` : ""}
+            </span>
             <span className="sep" aria-hidden="true" />
             <span>{outputFormat === "gif" ? "GIF 动图" : "静图"}</span>
+            {mask && (
+              <>
+                <span className="sep" aria-hidden="true" />
+                <span>
+                  局部重绘 <b>已标注</b>
+                </span>
+              </>
+            )}
             <span className="sep" aria-hidden="true" />
             <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
             <span className="sep" aria-hidden="true" />

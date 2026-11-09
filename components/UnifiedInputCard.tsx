@@ -37,6 +37,8 @@ interface UnifiedInputCardProps {
   onRefQualityChange: (q: RefQuality) => void;
   /** 已标注过蒙版（局部重绘），入口按钮显示为「已标注」实心态 */
   maskReady?: boolean;
+  /** 重绘区可视化图（只有可重绘区是橙色，其余透明），叠在参考图缩略图上 */
+  maskOverlayUrl?: string;
   /**
    * 打开蒙版编辑器。**传 undefined = 不提供局部重绘入口**——
    * 可用条件（格式=静态、参考图恰好 1 张）由调用方判断，组件不重复实现。
@@ -143,7 +145,7 @@ export function UnifiedInputCard({
   outputFormat, onOutputFormatChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
-  maskReady = false, onOpenMaskEditor,
+  maskReady = false, maskOverlayUrl, onOpenMaskEditor,
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate, onOptimizePrompt, optimizeLoading,
 }: UnifiedInputCardProps) {
@@ -397,6 +399,14 @@ export function UnifiedInputCard({
                       className="h-full w-full object-cover transition-slow group-hover:scale-110"
                     />
                   </div>
+                  {/* 重绘区可视化：让用户看得见自己涂了多大一块 */}
+                  {maskOverlayUrl && i === 0 && (
+                    <img
+                      src={maskOverlayUrl}
+                      alt="局部重绘区域"
+                      className="pointer-events-none absolute inset-0 h-14 w-11 rounded-[2px] opacity-75"
+                    />
+                  )}
                   <button
                     type="button"
                     className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-md ring-2 ring-background transition-base hover:bg-destructive/90 sm:-top-1.5 sm:-right-1.5"

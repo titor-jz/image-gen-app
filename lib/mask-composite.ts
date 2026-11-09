@@ -96,3 +96,37 @@ export async function compositeWithMask(opts: CompositeMaskOptions): Promise<str
   const dataUrl = canvas.toDataURL("image/png");
   return dataUrl.slice(dataUrl.indexOf(",") + 1);
 }
+
+/**
+ * 把蒙版转成「重绘区可视化」图：**只有可重绘区域是橙色**，其余透明。
+ *
+ * 直接渲染 mask PNG 是不行的 —— 它是「保护区不透明、可重绘区透明」，
+ * 叠在缩略图上只会看到一片白。所以反过来做：整张铺橙，再用蒙版把保护区挖掉
+ * （destination-out 保留「源透明」处的目标像素），剩下的橙色就是用户涂过的区域。
+ *
+ * 用途：确认蒙版后叠在参考图缩略图上，让用户看见自己究竟涂了多大一块 ——
+ * 之前只有「已标注」三个字，涂大了也无从察觉，是这一轮效果翻车的主因之一。
+ */
+export async function maskOverlayDataUrl(maskBlob: Blob): Promise<string> {
+  if (typeof document === "undefined") {
+    throw new Error("合成需要在浏览器环境执行");
+  }
+  const maskImg = await blobToDataUrl(maskBlob).then(loadImage);
+  const W = maskImg.naturalWidth;
+  const H = maskImg.naturalHeight;
+  if (!W || !H) throw new Error("蒙版尺寸无效");
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("无法创建画布");
+
+  ctx.fillStyle = "#b65009";
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.drawImage(maskImg, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+
+  return canvas.toDataURL("image/png");
+}
