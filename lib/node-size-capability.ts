@@ -24,6 +24,8 @@ export interface TierCapability {
   /** 实测出图尺寸（仅 supported/degraded 有） */
   width?: number;
   height?: number;
+  /** true = 由相邻档位推断（不是实测），UI 上要能区分 */
+  inferred?: boolean;
   checkedAt: number;
 }
 
@@ -67,11 +69,30 @@ export function recordSizeOutcome(
   try {
     const all = readAll();
     const entry = all[nodeId] ?? {};
+    const now = Date.now();
     entry[tier] = {
       state,
       ...(dims ? { width: dims.width, height: dims.height } : {}),
-      checkedAt: Date.now(),
+      inferred: false,
+      checkedAt: now,
     };
+
+    // 单调推断：分辨率是包含关系，不用每档都花一次生成去试
+    //  - 某档能出 → 更低的档必然能出（低分辨率不会比高的更难）
+    //  - 某档出不了 → 更高的档更不可能出
+    // 推断值带 inferred 标记，遇到实测会被覆盖。
+    const idx = TIER_ORDER.indexOf(tier);
+    const fill = (target: SizeTier, nextState: TierState) => {
+      const cur = entry[target];
+      if (cur && !cur.inferred) return; // 已有实测，不覆盖
+      entry[target] = { state: nextState, inferred: true, checkedAt: now };
+    };
+    if (state === "supported") {
+      for (let i = 0; i < idx; i++) fill(TIER_ORDER[i], "supported");
+    } else {
+      for (let i = idx + 1; i < TIER_ORDER.length; i++) fill(TIER_ORDER[i], "unsupported");
+    }
+
     all[nodeId] = entry;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   } catch {
@@ -79,10 +100,20 @@ export function recordSizeOutcome(
   }
 }
 
-/** UI 标记：已知可用 ✓ / 降档 △ / 不可用 ✗ / 未知空 */
-export function tierMark(cap?: TierCapability | null): string {
+export const TIER_ORDER: SizeTier[] = ["1k", "2k", "4k"];
+
+/**
+ * 一句话概括该节点能用到哪一档：
+ * 分辨率是包含关系，所以「最高可用档」就够表达了，不必逐档打勾
+ * （下拉里打勾会跟「当前选中项」的勾混淆）。
+ */
+export function capabilitySummary(cap: NodeSizeCapability | null | undefined): string {
   if (!cap) return "";
-  if (cap.state === "supported") return " ✓";
-  if (cap.state === "degraded") return " △";
-  return " ✗";
+  let max: SizeTier | null = null;
+  for (const t of TIER_ORDER) {
+    if (cap[t]?.state === "supported") max = t;
+  }
+  if (max) return `实测可用至 ${max.toUpperCase()}`;
+  if (TIER_ORDER.some((t) => cap[t])) return "实测三档均未跑通";
+  return "";
 }

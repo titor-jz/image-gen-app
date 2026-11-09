@@ -13,7 +13,8 @@ import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { TaskList } from "@/components/TaskList";
 import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
-import { tierMark, type NodeSizeCapability } from "@/lib/node-size-capability";
+import { capabilitySummary, type NodeSizeCapability } from "@/lib/node-size-capability";
+import { pixelSizeFor } from "@/lib/size-map";
 
 export interface ReferenceImage {
   id: string;
@@ -485,8 +486,9 @@ export function UnifiedInputCard({
             </div>
 
             {/* 画幅 + 质量：GIF 模式下画幅禁用（上游动图管线挑剔尺寸，统一 1024x1024，
-                输出画幅由模型自定），质量不受限（实测 low/high 均可动画） */}
-            <div className="flex items-center gap-3">
+                输出画幅由模型自定），质量不受限（实测 low/high 均可动画）。
+                这一行元素较多（画幅/分辨率/质量/能力/探测），窄屏允许换行避免横向溢出 */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="inst-label w-9 shrink-0">画幅</span>
               <SelectChip
                 value={selectedSize}
@@ -495,15 +497,26 @@ export function UnifiedInputCard({
                 disabled={outputFormat === "gif"}
                 disabledTitle="动图尺寸由模型自定"
               />
+              {/* 该画幅 + 质量档下实际会请求多少像素：换档位时这里的数字跟着变，
+                  「档位名」和「真实产出」对不上时能当场看出来。
+                  GIF 固定 1024×1024（上游动图管线对尺寸挑剔）；画幅=自动时由模型决定。 */}
+              <span className="inst-label shrink-0 tabular-nums text-muted-foreground" title="当前画幅与质量档下实际请求的像素尺寸">
+                {outputFormat === "gif"
+                  ? "1024×1024"
+                  : (() => {
+                      const px = pixelSizeFor(selectedSize, selectedQuality);
+                      return px ? `${px.width}×${px.height}` : "尺寸由模型定";
+                    })()}
+              </span>
               <span className="inst-label shrink-0">质量</span>
-              <SelectChip
-                value={selectedQuality}
-                onChange={onQualityChange}
-                options={QUALITIES.map((q) => ({
-                  value: q.value,
-                  label: q.label + tierMark(sizeCapability?.[q.value]),
-                }))}
-              />
+              <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
+              {/* 能力用文字概括，不用勾/叉：下拉里的勾会和「当前选中项」的勾混淆。
+                  分辨率是包含关系，「可用至 X」本身就表达了更低档也可用。 */}
+              {capabilitySummary(sizeCapability) && (
+                <span className="inst-label shrink-0" title="由真实生成的出图尺寸实测得出；4K 可用即代表更低档可用">
+                  {capabilitySummary(sizeCapability)}
+                </span>
+              )}
               {/* 该节点在所选档位上的实测结论：有据可依地提醒，而不是拦着用户不让点 */}
               {sizeCapability?.[selectedQuality]?.state === "degraded" && (
                 <span className="inst-label shrink-0" title="实测出图明显小于该档应有尺寸">
@@ -529,8 +542,8 @@ export function UnifiedInputCard({
                 </button>
               )}
               {sizeCapability?.[selectedQuality]?.state === "unsupported" && (
-                <span className="inst-label shrink-0 text-[color:var(--inst-accent)]" title="上一轮该档被上游拒绝">
-                  该节点此档失败过
+                <span className="inst-label shrink-0 text-[color:var(--inst-accent)]" title={sizeCapability?.[selectedQuality]?.inferred ? "由更低档失败推断，未实测" : "上一轮该档被上游拒绝"}>
+                  {sizeCapability?.[selectedQuality]?.inferred ? "该节点可能不支持此档" : "该节点此档失败过"}
                 </span>
               )}
             </div>

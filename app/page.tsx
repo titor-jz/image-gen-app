@@ -42,7 +42,7 @@ import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
 
-import { pixelSizeFor } from "@/lib/size-map";
+
 import { getNodeSizeCapability, type NodeSizeCapability } from "@/lib/node-size-capability";
 import { probeMaxTier } from "@/lib/probe-size";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
@@ -348,8 +348,6 @@ export default function Home() {
     })();
   }, [activeNode, probeState, effectiveModel]);
 
-  // 状态行展示「这一档实际会出多少像素」——档位名与产出对不上时一眼能看出来
-  const pixelSize = pixelSizeFor(selectedSize, selectedQuality);
 
 
   return (
@@ -419,7 +417,6 @@ export default function Home() {
             <span className="sep" aria-hidden="true" />
             <span>
               {selectedQuality.toUpperCase()}
-              {pixelSize ? ` · ${pixelSize.width}×${pixelSize.height}` : ""}
             </span>
             <span className="sep" aria-hidden="true" />
             <span>{outputFormat === "gif" ? "GIF 动图" : "静图"}</span>
