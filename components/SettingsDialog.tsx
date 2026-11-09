@@ -503,7 +503,10 @@ export function SettingsDialog({
               </label>
               <Input
                 id="settings-proxy-url"
-                placeholder="http://127.0.0.1:7890"
+                /* 前面必须带「如：」——之前直接写一个裸 URL，看起来像已经填好的值，
+                   实际是 placeholder，不少人以为配好了其实空着：
+                   本地直连超时，而域名那边因为 Workers 忽略代理反而正常 */
+                placeholder="如：http://127.0.0.1:7897"
                 value={edit.proxyUrl}
                 onChange={(e) => {
                   setEdit({ ...edit, proxyUrl: e.target.value });
@@ -511,6 +514,9 @@ export function SettingsDialog({
                   setTestMessage("");
                 }}
               />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                本地开发需要填（不填则 Node 直连上游，网络出不去会超时）；部署到 Cloudflare 后此设置不生效
+              </p>
             </div>
             <div>
               <label htmlFor="settings-custom-models" className="text-sm text-muted-foreground mb-1.5 block">
@@ -634,7 +640,7 @@ export function SettingsDialog({
               </label>
               <Input
                 id="settings-optimize-proxy"
-                placeholder="http://127.0.0.1:7890"
+                placeholder="如：http://127.0.0.1:7897"
                 value={optDraft.proxyUrl}
                 onChange={(e) => patchOptDraft({ proxyUrl: e.target.value })}
               />
