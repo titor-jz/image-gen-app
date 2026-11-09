@@ -21,6 +21,8 @@ import { useApiConfig } from "@/lib/api-config-context";
 import { saveSettings } from "@/lib/user-settings";
 import { buildCacheKey } from "@/lib/cache-key";
 import { compositeWithMask } from "@/lib/mask-composite";
+import { imageDimsFromB64 } from "@/lib/image-dims";
+import { pixelSizeFor } from "@/lib/size-map";
 import {
   addHistory,
   claimInFlight,
@@ -235,6 +237,8 @@ export function useImageGeneration(
   }, [apiKeyFromCtx]);
 
   const [tasks, setTasks] = useState<GenTask[]>([]);
+  /** 本批次是否已就「上游没按请求尺寸出图」告警过（避免 N 张图刷 N 条） */
+  const sizeWarnedRef = useRef(false);
   const [results, setResults] = useState<GenerateResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   /** 错误来源用的错误码（与 error 同步设置；null = 无错误） */
@@ -796,6 +800,25 @@ export function useImageGeneration(
               };
             } catch (e) {
               console.warn("[generate] 局部重绘合成失败，回退为上游原图:", e);
+            }
+          }
+
+          // 记录上游「实际」像素：中转/Key 不支持高分辨率档时会悄悄给个小图，
+          // 结果里只有请求的画幅比例，不测真实尺寸就会拿 1K 冒充 4K
+          {
+            const dims = await imageDimsFromB64(result.b64_json, result.mime);
+            if (dims) {
+              result = { ...result, actualWidth: dims.width, actualHeight: dims.height };
+              const want = pixelSizeFor(size, quality);
+              const shrunk =
+                want &&
+                (dims.width < want.width * 0.9 || dims.height < want.height * 0.9);
+              if (shrunk && !sizeWarnedRef.current) {
+                sizeWarnedRef.current = true;
+                toast.warning("上游没按请求尺寸出图", {
+                  description: `请求 ${want.width}×${want.height}，实际返回 ${dims.width}×${dims.height}。该节点/Key 可能不支持这一档，可降到更低档再试`,
+                });
+              }
             }
           }
 

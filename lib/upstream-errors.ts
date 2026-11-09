@@ -23,6 +23,21 @@ export function upstreamErrorHint(message: string): string {
   if (m.includes("invalid token") || m.includes("unauthorized") || m.includes("invalid api key")) {
     return "API Key 无效或已过期";
   }
+  // 尺寸档位不被支持：常见于 key/节点只开到 1K 或 2K（4K 请求被拒）
+  if (
+    (m.includes("size") ||
+      m.includes("resolution") ||
+      m.includes("dimension") ||
+      m.includes("尺寸") ||
+      m.includes("分辨率")) &&
+    (m.includes("invalid") ||
+      m.includes("unsupported") ||
+      m.includes("not supported") ||
+      m.includes("must be") ||
+      m.includes("exceed"))
+  ) {
+    return "该节点/Key 可能不支持这个画幅档位（分辨率越高越容易被限制），可把「质量」降到 2K 或 1K 再试";
+  }
   return "";
 }
 

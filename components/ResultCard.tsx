@@ -167,6 +167,11 @@ export function ResultCard({
           pointer-events-none 避免挡住整卡点击。 */}
       <span className="result-card-tag pointer-events-none absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate text-[10px] leading-4 px-1.5 rounded bg-black/60 text-white/90">
         {result.nodeName ? `${result.nodeName} · ${result.model}` : result.model}
+        {/* 实际像素：中转/Key 不支持高分辨率档时会悄悄给个小图，
+            把真实尺寸摊在卡片上，免得拿 1K 当 4K 看 */}
+        {result.actualWidth && result.actualHeight
+          ? ` · ${result.actualWidth}×${result.actualHeight}`
+          : ""}
       </span>
       {/* 卡片操作钮。
           触屏（<sm）没有 hover：遮罩改成不吃点击的透明层，操作钮缩到右上角，

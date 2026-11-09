@@ -23,6 +23,9 @@ export interface GenerateResult {
   imageUrl?: string;
   /** image mime type */
   mime: string;
+  /** 上游实际返回的像素尺寸（解码后测得；用于识破「请求 4K 实际给 1K」） */
+  actualWidth?: number;
+  actualHeight?: number;
   prompt: string;
   model: string;
   /** 生成该图的 API 节点名（对比跨节点时用于横幅展示；单节点留空） */
