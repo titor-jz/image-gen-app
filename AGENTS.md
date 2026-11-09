@@ -43,6 +43,7 @@ npm run deploy:cf      # Cloudflare 部署
 
 ## 已知坑
 
+- **dev server 的路由表会失效（表现为个别 API 路由 404）**：本地开着 `next dev` 时反复 `git checkout` 切分支（工作树被整体重写），Turbopack 的 watcher 可能漏掉几个 `route.ts`——结果是**某几个 API 路由直接 404**，而页面和其它路由都正常（`/api/test-key` 还活着、`/api/task/*` 还回 401），同一份代码 `next build` 与部署也完全没问题。`.next/dev/logs/next-development.log` 里**根本不会出现这些路由的编译记录**，这正是判断依据。修法：`touch` 那几个 route.ts 逼 watcher 重新注册，或重启 dev server（删掉 `.next` 最彻底）。**别误判成路由代码写坏了**——先确认 `POST /api/generate` 是否 405/200，若 404 而线上正常，就是这个问题。
 - **Workers 运行时检测勿用 `WorkerGlobalScope`**：workerd 不暴露该构造器（浏览器才有），typeof/instanceof 检测部署后恒为假，http-client 会误走 undici 分支报 `MessagePort is not defined`。用 `navigator.userAgent === "Cloudflare-Workers"`（http-client.ts 的 `IS_WORKERS`）。注意 `/api/models` 失败会静默回落兜底模型列表，测不出这类崩溃——验证上游调用要看 `/api/generate`。
 - **禁止在 Vercel/CF 公开部署的环境变量里配 `OPENAI_API_KEY`**：客户端未带 `x-api-key` 时路由会回落到服务端环境变量，等于把额度开放给所有访问者。且 BYO 端点架构本身即开放中继（`x-base-url` 可指向任意上游），公开部署需自行加鉴权/限流。
 - `scripts/**` 运行在 Node CommonJS 上下文，必须用 `require()`（已在 eslint 中豁免 no-require-imports），不要改成 ESM。
