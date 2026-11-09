@@ -44,6 +44,7 @@ import { useImageGeneration } from "@/hooks/useImageGeneration";
 import { maskOverlayDataUrl } from "@/lib/mask-composite";
 import { pixelSizeFor } from "@/lib/size-map";
 import { getNodeSizeCapability, type NodeSizeCapability } from "@/lib/node-size-capability";
+import { probeMaxTier } from "@/lib/probe-size";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -336,10 +337,44 @@ export default function Home() {
   // 必须走 state + effect：localStorage 在 SSR 不存在，直接在 render/useMemo 里读会让
   // 服务端（无标记）与客户端首帧（有标记）的选项文案不一致 → hydration mismatch。
   const [sizeCapability, setSizeCapability] = useState<NodeSizeCapability | null>(null);
+  const [capVersion, setCapVersion] = useState(0);
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
     setSizeCapability(activeNode?.id ? getNodeSizeCapability(activeNode.id) : null);
-  }, [activeNode?.id, results]);
+  }, [activeNode?.id, results, capVersion]);
+
+  // 探测该节点最高可用档位：二次点击才真跑（最多 3 次生成，会扣费）
+  const [probeState, setProbeState] = useState<"idle" | "confirm" | "running">("idle");
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setProbeState("idle");
+  }, [activeNode?.id]);
+  const handleProbeSize = useCallback(() => {
+    if (!activeNode || probeState === "running") return;
+    if (probeState === "idle") {
+      setProbeState("confirm");
+      return;
+    }
+    setProbeState("running");
+    void (async () => {
+      const best = await probeMaxTier({
+        nodeId: activeNode.id,
+        apiKey: activeNode.apiKey,
+        baseUrl: activeNode.baseUrl,
+        proxyUrl: activeNode.proxyUrl,
+        model: effectiveModel,
+      });
+      setProbeState("idle");
+      setCapVersion((v) => v + 1);
+      if (best) {
+        toast.success(`该节点最高可用 ${best.tier.toUpperCase()}`, {
+          description: `实测出图 ${best.width}×${best.height}`
+        });
+      } else {
+        toast.error("三档都没跑通", { description: "该节点可能不可用，或模型不支持" });
+      }
+    })();
+  }, [activeNode, probeState, effectiveModel]);
 
   // 状态行展示「这一档实际会出多少像素」——档位名与产出对不上时一眼能看出来
   const pixelSize = pixelSizeFor(selectedSize, selectedQuality);
@@ -458,6 +493,8 @@ export default function Home() {
               maskReady={Boolean(mask)}
               maskOverlayUrl={maskOverlayUrl ?? undefined}
               sizeCapability={sizeCapability}
+              onProbeSize={activeNode ? handleProbeSize : undefined}
+              probeState={probeState}
               // 不满足可用条件时传 undefined = 不渲染入口
               onOpenMaskEditor={
                 canInpaint

@@ -42,6 +42,10 @@ interface UnifiedInputCardProps {
   maskOverlayUrl?: string;
   /** 当前节点各清晰度档的实测能力（被动学习自真实生成，未测过的档位不显示标记） */
   sizeCapability?: NodeSizeCapability | null;
+  /** 探测该节点最高可用档位：传 undefined 不显示入口 */
+  onProbeSize?: () => void;
+  /** idle / confirm（再点一次才真跑）/ running */
+  probeState?: "idle" | "confirm" | "running";
   /**
    * 打开蒙版编辑器。**传 undefined = 不提供局部重绘入口**——
    * 可用条件（格式=静态、参考图恰好 1 张）由调用方判断，组件不重复实现。
@@ -148,7 +152,8 @@ export function UnifiedInputCard({
   outputFormat, onOutputFormatChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
-  maskReady = false, maskOverlayUrl, sizeCapability, onOpenMaskEditor,
+  maskReady = false, maskOverlayUrl, sizeCapability,
+  onProbeSize, probeState = "idle", onOpenMaskEditor,
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate, onOptimizePrompt, optimizeLoading,
 }: UnifiedInputCardProps) {
@@ -538,6 +543,24 @@ export function UnifiedInputCard({
                 <span className="inst-label shrink-0" title="实测出图明显小于该档应有尺寸">
                   该节点此档出图偏小
                 </span>
+              )}
+              {/* 探测：真跑最多 3 次生成，从 4K 往下试到能用为止。二次点击才执行，防误触花钱 */}
+              {onProbeSize && (
+                <button
+                  type="button"
+                  onClick={onProbeSize}
+                  disabled={probeState === "running"}
+                  title="真实生成最多 3 次：从 4K 往下试，遇到能用的档位就停"
+                  className={`inst-label shrink-0 underline decoration-dotted underline-offset-2 transition-base hover:text-foreground ${
+                    probeState === "confirm" ? "text-[color:var(--inst-accent)]" : ""
+                  } ${probeState === "running" ? "opacity-60" : ""}`}
+                >
+                  {probeState === "running"
+                    ? "探测中…"
+                    : probeState === "confirm"
+                    ? "确认？最多 3 次生成"
+                    : "探测档位"}
+                </button>
               )}
               {sizeCapability?.[selectedQuality]?.state === "unsupported" && (
                 <span className="inst-label shrink-0 text-[color:var(--inst-accent)]" title="上一轮该档被上游拒绝">
