@@ -357,7 +357,11 @@ export function UnifiedInputCard({
               onChange={handlePromptChange}
               onKeyDown={handlePromptKeyDown}
               onPaste={handlePaste}
-              placeholder="在此处拖入图片，并写入提示词"
+              placeholder={
+                maskReady
+                  ? "描述涂抹区要变成什么；改文字/标识时把新文字直接写出来，例如：把标题改成「新年狂欢」"
+                  : "在此处拖入图片，并写入提示词"
+              }
               /* pr-7 给右上角「清空」按钮留位：优化后的长文本首行会跑到它下面 */
               className="w-full min-h-[100px] resize-none bg-transparent text-foreground text-base placeholder:text-muted-foreground/60 outline-none leading-relaxed pr-7"
               maxLength={MAX_PROMPT_CHARS}
