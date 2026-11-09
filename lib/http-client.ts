@@ -46,11 +46,10 @@ function loadUndici(): Promise<UndiciModule> {
   return undiciModulePromise;
 }
 
-/** 表单工厂：调用方一律用它构造 multipart，不要再直接 import undici 的 FormData */
-export function createFormData(): FormData {
-  // Node 的全局 FormData 本身就是 undici 实现（spec 一致），两种运行时通用
-  return new FormData();
-}
+/** multipart 部件：文本字段，或带文件名的二进制部件 */
+export type MultipartPart =
+  | { name: string; value: string; contentType?: string }
+  | { name: string; value: Blob; filename: string; contentType?: string };
 
 function collectResult(
   // 结构化签名：全局 Response（Workers）与 undici Response（Node）都满足
@@ -72,7 +71,7 @@ function collectResult(
 interface RequestOptions {
   method: "GET" | "POST";
   headers?: Record<string, string>;
-  body?: FormData | string;
+  body?: FormData | string | ArrayBuffer;
   proxyUrl?: string;
   timeoutMs: number;
 }
@@ -119,16 +118,78 @@ export function httpRequest(
   });
 }
 
-export async function httpFormDataRequest(
+/**
+ * 手写 multipart 编码。
+ *
+ * 为什么不直接用 FormData：FormData 的文本字段**无法声明 Content-Type**，
+ * 而过的中转（NewAPI 系）在部件没有 `charset=utf-8` 时按 latin-1 解码表单字段 ——
+ * 中文提示词变乱码，模型收到的是垃圾，表现为「忽略提示词、返回无关内容」。
+ *
+ * 实测对照（同一张底图、同一个模型）：
+ * - 英文提示词：完全正常（红苹果→绿梨，其余不动）
+ * - 中文提示词、无 charset：失效（原样不动 / 多出一个马克杯 / 只改背景）
+ * - 中文提示词、prompt 部件声明 `text/plain; charset=utf-8`：完全正常
+ * 详见 docs/inpaint/PLAN.md。这个问题会让「参考图生图」对中文提示词整体失效。
+ */
+async function buildMultipart(
+  parts: MultipartPart[]
+): Promise<{ body: ArrayBuffer; contentType: string }> {
+  const boundary = `----imggen${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const pushText = (s: string) => {
+    chunks.push(enc.encode(s));
+  };
+  // 引号/换行会破坏 header 结构，转义掉（正常字段名与文件名不会遇到）
+  const esc = (s: string) => s.replace(/"/g, "%22").replace(/[\r\n]/g, " ");
+
+  for (const part of parts) {
+    pushText(`--${boundary}\r\n`);
+    // 用 `in` 收窄：文本部件没有 filename，二进制部件没有可读的字符串值
+    if ("filename" in part) {
+      pushText(
+        `Content-Disposition: form-data; name="${esc(part.name)}"; filename="${esc(part.filename)}"\r\n`
+      );
+      pushText(
+        `Content-Type: ${part.contentType ?? (part.value.type || "application/octet-stream")}\r\n\r\n`
+      );
+      chunks.push(new Uint8Array(await part.value.arrayBuffer()));
+      pushText("\r\n");
+    } else {
+      pushText(`Content-Disposition: form-data; name="${esc(part.name)}"\r\n`);
+      // 默认给文本字段声明 UTF-8——正是这个头修复了中文提示词被吞的问题
+      pushText(`Content-Type: ${part.contentType ?? "text/plain; charset=utf-8"}\r\n\r\n`);
+      pushText(part.value);
+      pushText("\r\n");
+    }
+  }
+  pushText(`--${boundary}--\r\n`);
+
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    body.set(c, offset);
+    offset += c.byteLength;
+  }
+  return { body: body.buffer, contentType: `multipart/form-data; boundary=${boundary}; charset=utf-8` };
+}
+
+/**
+ * POST multipart。与 httpFormDataRequest 的区别是**手写编码**，因此能给文本字段
+ * 声明 `charset=utf-8`（见 buildMultipart 注释）——带中文提示词的上游请求一律走这里。
+ */
+export async function httpMultipartRequest(
   urlStr: string,
-  form: FormData,
+  parts: MultipartPart[],
   extraHeaders: Record<string, string> = {},
   proxyUrl?: string
 ): Promise<HttpResult> {
+  const { body, contentType } = await buildMultipart(parts);
   return doRequest(urlStr, {
     method: "POST",
-    headers: extraHeaders,
-    body: form,
+    headers: { "Content-Type": contentType, ...extraHeaders },
+    body,
     proxyUrl,
     timeoutMs: GEN_TIMEOUT_MS,
   });

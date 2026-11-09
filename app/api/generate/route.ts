@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { httpRequest, httpFormDataRequest, httpJsonPost, createFormData } from "@/lib/http-client";
+import { httpRequest, httpMultipartRequest, httpJsonPost, type MultipartPart } from "@/lib/http-client";
 import { errorResponse, type ErrorCode } from "@/lib/error-messages";
 import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
@@ -73,23 +73,34 @@ function streamSyncGeneration(opts: {
         if (opts.imageFiles.length > 0) {
           // 图生图走标准 /v1/images/edits（multipart）——带图的 /generations 会被
           // NewAPI 系中转识别为 dall-e 请求 → 503 No available channel
-          const editForm = createFormData();
-          editForm.append("model", opts.model);
-          editForm.append("prompt", opts.upstreamPrompt);
-          editForm.append("size", opts.sizeParam);
+          const editParts: MultipartPart[] = [
+            { name: "model", value: opts.model },
+            // 中文提示词必须声明 charset：中转对没有 charset 的表单字段按 latin-1
+            // 解码 → 模型收到乱码，表现为「完全忽略提示词」（见 lib/http-client.ts）
+            {
+              name: "prompt",
+              value: opts.upstreamPrompt,
+              contentType: "text/plain; charset=utf-8",
+            },
+            { name: "size", value: opts.sizeParam },
+          ];
           // SVG 输出：edits 分支同样透传（漏传会导致图生图矢量化回 PNG）
           if (opts.outputFormat === "svg") {
-            editForm.append("output_format", "svg");
+            editParts.push({ name: "output_format", value: "svg" });
           }
           for (let i = 0; i < opts.imageFiles.length; i++) {
             const file = opts.imageFiles[i];
             if (file instanceof Blob) {
-              editForm.append("image", file, (file as File).name || `input_${i}.png`);
+              editParts.push({
+                name: "image",
+                value: file,
+                filename: (file as File).name || `input_${i}.png`,
+              });
             }
           }
-          res = await httpFormDataRequest(
+          res = await httpMultipartRequest(
             `${opts.baseURL}/images/edits`,
-            editForm,
+            editParts,
             { Authorization: `Bearer ${opts.apiKey}` },
             opts.proxyUrl
           );
@@ -297,23 +308,32 @@ export async function POST(request: NextRequest) {
     // 且动图输出尺寸/画幅本就由模型自定（无视请求尺寸），GIF 模式一律送 1024x1024
     //（画幅选择器在 GIF 模式下已禁用）
     const upstreamSize = outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
-    // 运行时自适应的 FormData（Node=undici 实现 / Workers=全局，见 lib/http-client.ts）
-    const form = createFormData();
-    form.append("model", model);
-    form.append("prompt", upstreamPrompt);
-    form.append("size", upstreamSize);
-    form.append("quality", QUALITY_MAP[quality] || "low");
-    form.append("response_format", "url");
+    // multipart 部件（手写编码，文本字段声明 charset=utf-8——中文提示词的必需项，
+    // 见 lib/http-client.ts 的 buildMultipart）
+    const parts: MultipartPart[] = [
+      { name: "model", value: model },
+      {
+        name: "prompt",
+        value: upstreamPrompt,
+        contentType: "text/plain; charset=utf-8",
+      },
+      { name: "size", value: upstreamSize },
+      { name: "quality", value: QUALITY_MAP[quality] || "low" },
+      { name: "response_format", value: "url" },
+    ];
     // SVG 输出：透传 output_format=svg（实测中转支持，返回真矢量 <svg> XML）
     if (outputFormat === "svg") {
-      form.append("output_format", "svg");
+      parts.push({ name: "output_format", value: "svg" });
     }
 
     for (let i = 0; i < imageFiles.length; i++) {
       const file = imageFiles[i];
       if (file instanceof Blob) {
-        const name = (file as File).name || `input_${i}.png`;
-        form.append("image", file, name);
+        parts.push({
+          name: "image",
+          value: file,
+          filename: (file as File).name || `input_${i}.png`,
+        });
       }
     }
 
@@ -335,9 +355,9 @@ export async function POST(request: NextRequest) {
 
     let res;
     try {
-      res = await httpFormDataRequest(
+      res = await httpMultipartRequest(
         url,
-        form,
+        parts,
         { Authorization: `Bearer ${apiKey}` },
         proxyUrl
       );
