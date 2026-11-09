@@ -43,6 +43,7 @@ import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
 import { maskOverlayDataUrl } from "@/lib/mask-composite";
 import { pixelSizeFor } from "@/lib/size-map";
+import { getNodeSizeCapability } from "@/lib/node-size-capability";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -331,6 +332,13 @@ export default function Home() {
   );
 
   /** 蒙版只在「格式=静态 且 参考图恰好 1 张」时有意义（服务端同样的校验） */
+  // 当前节点各清晰度档的实测能力（被动学习，见 lib/node-size-capability）。
+  // 依赖 results：每出一张图就可能学到一条新证据，重算一次即可（读 localStorage 很便宜）
+  const sizeCapability = useMemo(
+    () => (activeNode?.id ? getNodeSizeCapability(activeNode.id) : null),
+    [activeNode?.id, results]
+  );
+
   // 状态行展示「这一档实际会出多少像素」——档位名与产出对不上时一眼能看出来
   const pixelSize = pixelSizeFor(selectedSize, selectedQuality);
 
@@ -447,6 +455,7 @@ export default function Home() {
               optimizeLoading={optimizeLoading}
               maskReady={Boolean(mask)}
               maskOverlayUrl={maskOverlayUrl ?? undefined}
+              sizeCapability={sizeCapability}
               // 不满足可用条件时传 undefined = 不渲染入口
               onOpenMaskEditor={
                 canInpaint

@@ -23,6 +23,7 @@ import { buildCacheKey } from "@/lib/cache-key";
 import { compositeWithMask } from "@/lib/mask-composite";
 import { imageDimsFromB64 } from "@/lib/image-dims";
 import { pixelSizeFor } from "@/lib/size-map";
+import { recordSizeOutcome, type SizeTier } from "@/lib/node-size-capability";
 import {
   addHistory,
   claimInFlight,
@@ -804,7 +805,8 @@ export function useImageGeneration(
           }
 
           // 记录上游「实际」像素：中转/Key 不支持高分辨率档时会悄悄给个小图，
-          // 结果里只有请求的画幅比例，不测真实尺寸就会拿 1K 冒充 4K
+          // 结果里只有请求的画幅比例，不测真实尺寸就会拿 1K 冒充 4K。
+          // 顺带把「该节点该档到底行不行」学下来（用户有多个 key，能力并不一致）
           {
             const dims = await imageDimsFromB64(result.b64_json, result.mime);
             if (dims) {
@@ -813,6 +815,13 @@ export function useImageGeneration(
               const shrunk =
                 want &&
                 (dims.width < want.width * 0.9 || dims.height < want.height * 0.9);
+              // 被动学习：成功=该档可用；明显缩水=该档基本不可用
+              recordSizeOutcome(
+                nodeKey,
+                quality as SizeTier,
+                shrunk ? "degraded" : "supported",
+                dims
+              );
               if (shrunk && !sizeWarnedRef.current) {
                 sizeWarnedRef.current = true;
                 toast.warning("上游没按请求尺寸出图", {
@@ -844,6 +853,10 @@ export function useImageGeneration(
                 : err instanceof Error
                 ? err.message
                 : getErrorMessage("UNKNOWN");
+            // 尺寸档被上游拒绝：把「该节点该档不可用」学下来，下次质量下拉直接标 ✗
+            if (/画幅档位|unsupported.*size|invalid.*size|size.*not supported/i.test(msg)) {
+              recordSizeOutcome(nodeKey, quality as SizeTier, "unsupported");
+            }
             // 模型优先路由的配套提示：该模型在其他渠道还可用时，告知用户可手动切换
             const hint = getChannelHint?.(task.model, taskNode.id) ?? null;
             const fullMsg = hint ? `${msg}（${hint}）` : msg;

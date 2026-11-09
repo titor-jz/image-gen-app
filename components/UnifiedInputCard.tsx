@@ -13,6 +13,7 @@ import { useAutoGrowTextarea } from "@/hooks/useAutoGrowTextarea";
 import { TaskList } from "@/components/TaskList";
 import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
+import { tierMark, type NodeSizeCapability } from "@/lib/node-size-capability";
 
 export interface ReferenceImage {
   id: string;
@@ -39,6 +40,8 @@ interface UnifiedInputCardProps {
   maskReady?: boolean;
   /** 重绘区可视化图（只有可重绘区是橙色，其余透明），叠在参考图缩略图上 */
   maskOverlayUrl?: string;
+  /** 当前节点各清晰度档的实测能力（被动学习自真实生成，未测过的档位不显示标记） */
+  sizeCapability?: NodeSizeCapability | null;
   /**
    * 打开蒙版编辑器。**传 undefined = 不提供局部重绘入口**——
    * 可用条件（格式=静态、参考图恰好 1 张）由调用方判断，组件不重复实现。
@@ -145,7 +148,7 @@ export function UnifiedInputCard({
   outputFormat, onOutputFormatChange,
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
-  maskReady = false, maskOverlayUrl, onOpenMaskEditor,
+  maskReady = false, maskOverlayUrl, sizeCapability, onOpenMaskEditor,
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate, onOptimizePrompt, optimizeLoading,
 }: UnifiedInputCardProps) {
@@ -522,7 +525,25 @@ export function UnifiedInputCard({
                 disabledTitle="动图尺寸由模型自定"
               />
               <span className="inst-label shrink-0">质量</span>
-              <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
+              <SelectChip
+                value={selectedQuality}
+                onChange={onQualityChange}
+                options={QUALITIES.map((q) => ({
+                  value: q.value,
+                  label: q.label + tierMark(sizeCapability?.[q.value]),
+                }))}
+              />
+              {/* 该节点在所选档位上的实测结论：有据可依地提醒，而不是拦着用户不让点 */}
+              {sizeCapability?.[selectedQuality]?.state === "degraded" && (
+                <span className="inst-label shrink-0" title="实测出图明显小于该档应有尺寸">
+                  该节点此档出图偏小
+                </span>
+              )}
+              {sizeCapability?.[selectedQuality]?.state === "unsupported" && (
+                <span className="inst-label shrink-0 text-[color:var(--inst-accent)]" title="上一轮该档被上游拒绝">
+                  该节点此档失败过
+                </span>
+              )}
             </div>
 
             {/* 输出格式：动图仅 2.6 系支持，选中后模型下拉只留可动图的型号 */}
