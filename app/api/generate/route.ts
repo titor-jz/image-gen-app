@@ -5,6 +5,7 @@ import { resolveUpstream } from "@/lib/upstream-config";
 import { upstreamUrlError } from "@/lib/url-guard";
 import { MAX_PROMPT_CHARS } from "@/lib/prompt-rules";
 import { upstreamErrorHint } from "@/lib/upstream-errors";
+import { QUALITY_MAP, upstreamSizeFor } from "@/lib/size-map";
 
 /** 按魔数嗅探图片 MIME：2.6 等模型可返回动图 GIF，写死 image/png 会让下载后缀与展示出错 */
 function sniffImageMime(b64: string): string {
@@ -207,41 +208,6 @@ function streamSyncGeneration(opts: {
   });
 }
 
-// gpt-image-2 支持的尺寸
-// 2K 档(默认):适合快速出图
-const SIZE_MAP: Record<string, string> = {
-  "1:1": "1024x1024",
-  "16:9": "2048x1152",
-  "9:16": "1152x2048",
-  "4:3": "2048x1536",
-  "3:4": "1536x2048",
-  "3:2": "1536x1024",
-  "2:3": "1024x1536",
-  "21:9": "3696x1584",
-  "3:1": "3840x1280",
-  auto: "auto",
-};
-
-// 4K 档:边长 ≤ 3840px
-const SIZE_4K_MAP: Record<string, string> = {
-  "1:1": "3072x3072",
-  "16:9": "3840x2160",
-  "9:16": "2160x3840",
-  "4:3": "3840x2880",
-  "3:4": "2880x3840",
-  "3:2": "3840x2560",
-  "2:3": "2560x3840",
-  "21:9": "3840x1646",
-  "3:1": "3840x1280",
-  auto: "auto",
-};
-
-const QUALITY_MAP: Record<string, string> = {
-  "1k": "low",
-  "2k": "medium",
-  "4k": "high",
-};
-
 // 请求体上限：默认 4MB，必须低于 Vercel 平台限制（约 4.5MB），否则平台先拒（413），
 // 客户端只能拿到"未知错误"而不是 REQ_BODY_TOO_LARGE 的中文提示（评审 S-4）。
 // 本地/自托管可用 GEN_MAX_BODY_MB 放宽（如 GEN_MAX_BODY_MB=20）。
@@ -322,12 +288,12 @@ export async function POST(request: NextRequest) {
 
     const url = `${baseURL}/images/generations/async`;
     const syncUrl = `${baseURL}/images/generations`;
-    const sizeMap = quality === "4k" ? SIZE_4K_MAP : SIZE_MAP;
+    // 尺寸解析统一走 lib/size-map（1K/2K/4K 三档各自的像素表，服务端与界面共用）
     // 上游 2.6 动图管线对 size 挑剔：实测 1024x1024 / 2048x1152 出动画，
     // "auto"、3072x3072（4K 档）与超宽尺寸都静默回退静图（E/F/I/J 组对照）——
     // 且动图输出尺寸/画幅本就由模型自定（无视请求尺寸），GIF 模式一律送 1024x1024
     //（画幅选择器在 GIF 模式下已禁用）
-    const upstreamSize = outputFormat === "gif" ? "1024x1024" : sizeMap[size] || "auto";
+    const upstreamSize = upstreamSizeFor(size, quality, outputFormat);
     // 质量参数：img2img / 局部重绘也要传（此前只在纯文生图表单里出现）
     const qualityValue = QUALITY_MAP[quality] || "low";
     // multipart 部件（手写编码，文本字段声明 charset=utf-8——中文提示词的必需项，
