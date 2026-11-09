@@ -817,7 +817,7 @@ export function useImageGeneration(
                 : err instanceof Error
                 ? err.message
                 : getErrorMessage("UNKNOWN");
-            // 尺寸档被上游拒绝：把「该节点该档不可用」学下来，下次质量下拉直接标 ✗
+            // 尺寸档被上游拒绝：把「该节点该档不可用」学下来，下次在质量选择器旁提示
             if (/画幅档位|unsupported.*size|invalid.*size|size.*not supported/i.test(msg)) {
               recordSizeOutcome(nodeKey, quality as SizeTier, "unsupported");
             }

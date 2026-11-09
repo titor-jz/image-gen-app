@@ -5,7 +5,7 @@
  * 所以从高到低试，**遇到能用的就停**（最坏 3 次生成，通常 1~2 次）。
  *
  * 判定依据与正式生成一致：解码量真实像素，明显小于该档应有尺寸算「不可用」。
- * 结果写入 node-size-capability，质量下拉的 ✓/△/✗ 标记随之更新。
+ * 结果写入 node-size-capability，质量选择器旁的能力概况随之更新。
  */
 
 import { buildApiHeaders } from "@/lib/api-headers";

@@ -14,7 +14,7 @@ import { TaskList } from "@/components/TaskList";
 import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types";
 import type { ApiProfile } from "@/lib/api-config-context";
 import { capabilitySummary, type NodeSizeCapability } from "@/lib/node-size-capability";
-import { pixelSizeFor } from "@/lib/size-map";
+import { upstreamSizeFor } from "@/lib/size-map";
 
 export interface ReferenceImage {
   id: string;
@@ -296,6 +296,16 @@ export function UnifiedInputCard({
 
   const sizeLabel = SIZES.find((s) => s.value === selectedSize)?.label ?? selectedSize;
 
+  // 当前「画幅 + 质量档」实际会请求的像素尺寸。
+  // 走 upstreamSizeFor 而不是在这里拼：GIF 强制 1024×1024、auto 等规则都在 lib/size-map.ts，
+  // 两处各写一份就会各说各话（之前这里硬编码过 "1024×1024"）。
+  const requestSizeLabel = (() => {
+    const raw = upstreamSizeFor(selectedSize, selectedQuality, outputFormat);
+    return /^\d+x\d+$/.test(raw) ? raw.replace("x", "×") : "尺寸由模型定";
+  })();
+  // 每渲染只算一次（原来在 JSX 里调了两次）
+  const capSummary = capabilitySummary(sizeCapability);
+
   return (
     <div
       className={`input-card relative overflow-hidden transition-slow ${cardDragOver ? "ring-2 ring-[color:var(--inst-accent)]" : ""}`}
@@ -497,30 +507,33 @@ export function UnifiedInputCard({
                 disabled={outputFormat === "gif"}
                 disabledTitle="动图尺寸由模型自定"
               />
-              {/* 该画幅 + 质量档下实际会请求多少像素：换档位时这里的数字跟着变，
-                  「档位名」和「真实产出」对不上时能当场看出来。
-                  GIF 固定 1024×1024（上游动图管线对尺寸挑剔）；画幅=自动时由模型决定。 */}
+              {/* 该画幅 + 质量档下实际会请求多少像素：换档位时数字跟着变，
+                  「档位名」和「真实产出」对不上时能当场看出来 */}
               <span className="inst-label shrink-0 tabular-nums text-muted-foreground" title="当前画幅与质量档下实际请求的像素尺寸">
-                {outputFormat === "gif"
-                  ? "1024×1024"
-                  : (() => {
-                      const px = pixelSizeFor(selectedSize, selectedQuality);
-                      return px ? `${px.width}×${px.height}` : "尺寸由模型定";
-                    })()}
+                {requestSizeLabel}
               </span>
               <span className="inst-label shrink-0">质量</span>
               <SelectChip value={selectedQuality} onChange={onQualityChange} options={QUALITIES} />
               {/* 能力用文字概括，不用勾/叉：下拉里的勾会和「当前选中项」的勾混淆。
                   分辨率是包含关系，「可用至 X」本身就表达了更低档也可用。 */}
-              {capabilitySummary(sizeCapability) && (
-                <span className="inst-label shrink-0" title="由真实生成的出图尺寸实测得出；4K 可用即代表更低档可用">
-                  {capabilitySummary(sizeCapability)}
+              {capSummary && (
+                <span className="inst-label shrink-0" title="由真实生成的出图尺寸得出；带「推断」的是从相邻档位推出来的，未实测">
+                  {capSummary}
                 </span>
               )}
               {/* 该节点在所选档位上的实测结论：有据可依地提醒，而不是拦着用户不让点 */}
               {sizeCapability?.[selectedQuality]?.state === "degraded" && (
-                <span className="inst-label shrink-0" title="实测出图明显小于该档应有尺寸">
-                  该节点此档出图偏小
+                <span
+                  className="inst-label shrink-0"
+                  title={
+                    sizeCapability?.[selectedQuality]?.inferred
+                      ? "由相邻档位推断，该档未实测"
+                      : "实测出图明显小于该档应有尺寸"
+                  }
+                >
+                  {sizeCapability?.[selectedQuality]?.inferred
+                    ? "该节点此档可能出图偏小"
+                    : "该节点此档出图偏小"}
                 </span>
               )}
               {/* 探测：真跑最多 3 次生成，从 4K 往下试到能用为止。二次点击才执行，防误触花钱 */}

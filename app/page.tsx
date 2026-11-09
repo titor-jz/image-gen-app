@@ -41,8 +41,6 @@ import { useApiConfig } from "@/lib/api-config-context";
 import { resolveOptimizeEndpoint } from "@/lib/optimize-endpoint";
 import { useInFlightRecovery } from "@/hooks/useInFlightRecovery";
 import { useImageGeneration } from "@/hooks/useImageGeneration";
-
-
 import { getNodeSizeCapability, type NodeSizeCapability } from "@/lib/node-size-capability";
 import { probeMaxTier } from "@/lib/probe-size";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
@@ -347,8 +345,6 @@ export default function Home() {
       }
     })();
   }, [activeNode, probeState, effectiveModel]);
-
-
 
   return (
     /* ui-instrument：仪器面板视觉层（见 globals.css）。手机与桌面用同一套结构与背景，
