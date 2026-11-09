@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Download, FolderDown, ImageOff } from "lucide-react";
+import { Download, FolderDown, ImageOff, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { aspectOf } from "@/lib/aspect";
 import type { GenerateResult } from "@/lib/types";
@@ -95,6 +95,7 @@ export function ResultCard({
   onExpand,
   onDownload,
   onSaveToGallery,
+  onInpaint,
   appMode = false,
   getImageSrc,
   className = "",
@@ -105,6 +106,8 @@ export function ResultCard({
   onDownload: (r: GenerateResult) => void;
   /** APP 环境下的保存到相册动作（appMode 为真时替代下载） */
   onSaveToGallery?: (r: GenerateResult) => void;
+  /** 以这张结果为底图做局部重绘；不传则不渲染入口（外观与改动前一致） */
+  onInpaint?: (r: GenerateResult) => void;
   /** Capacitor 壳内：卡片操作钮换成保存到相册 */
   appMode?: boolean;
   getImageSrc: (r: GenerateResult) => string;
@@ -116,6 +119,29 @@ export function ResultCard({
   const knownRatio = aspectOf(result.size);
   const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
   const ratio = knownRatio ?? naturalRatio ?? 1;
+
+  // 卡片操作钮：APP 环境 a[download] 无效 → 换成原生「保存到相册」。
+  // 不传 onInpaint 时保持原来的「单钮绝对定位」，DOM 与改动前完全一致；
+  // 传了才把两颗钮收进 flex 组（触屏贴右上角并排、桌面居中并排）。
+  const actionButton = (
+    <Button
+      variant="secondary"
+      size="icon"
+      className={
+        onInpaint
+          ? "h-9 w-9 press sm:h-8 sm:w-8"
+          : "pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
+      }
+      onClick={(e) => {
+        e.stopPropagation();
+        if (appMode) onSaveToGallery?.(result);
+        else onDownload(result);
+      }}
+      aria-label={appMode ? "保存到相册" : "下载"}
+    >
+      {appMode ? <FolderDown className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+    </Button>
+  );
 
   return (
     <div
@@ -146,34 +172,28 @@ export function ResultCard({
           触屏（<sm）没有 hover：遮罩改成不吃点击的透明层，操作钮缩到右上角，
           其余整块留给「点开看图」——否则居中的按钮会把点击吞掉，图点不开。
           桌面（≥sm）保持原来的居中遮罩 + hover 显隐。
-          APP 环境 a[download] 无效 → 同一位置换成原生「保存到相册」 */}
+          有「局部重绘」时两颗钮并排：触屏仍贴右上角（不压住整卡点击区），
+          桌面居中成一组。 */}
       <div className="pointer-events-none absolute inset-0 transition-base sm:flex sm:items-center sm:justify-center sm:bg-black/0 sm:opacity-0 sm:group-hover:bg-black/40 sm:group-hover:opacity-100">
-        {appMode ? (
-          <Button
-            variant="secondary"
-            size="icon"
-            className="pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSaveToGallery?.(result);
-            }}
-            aria-label="保存到相册"
-          >
-            <FolderDown className="w-4 h-4" />
-          </Button>
+        {onInpaint ? (
+          <div className="pointer-events-auto absolute top-2 right-2 flex items-center gap-1.5 sm:static sm:gap-2">
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-9 w-9 press sm:h-8 sm:w-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInpaint(result);
+              }}
+              aria-label="局部重绘"
+              title="局部重绘"
+            >
+              <PenLine className="w-4 h-4" />
+            </Button>
+            {actionButton}
+          </div>
         ) : (
-          <Button
-            variant="secondary"
-            size="icon"
-            className="pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDownload(result);
-            }}
-            aria-label="下载"
-          >
-            <Download className="w-4 h-4" />
-          </Button>
+          actionButton
         )}
       </div>
     </div>

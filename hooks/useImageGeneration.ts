@@ -20,6 +20,7 @@ import { getNodeCapability, setNodeCapability } from "@/lib/node-capability";
 import { useApiConfig } from "@/lib/api-config-context";
 import { saveSettings } from "@/lib/user-settings";
 import { buildCacheKey } from "@/lib/cache-key";
+import { compositeWithMask } from "@/lib/mask-composite";
 import {
   addHistory,
   claimInFlight,
@@ -95,6 +96,11 @@ export interface UseImageGenerationOptions {
     apiKey: string;
     proxyUrl: string;
   };
+  /**
+   * 局部重绘蒙版（alpha=0 = 可重绘区）。只在参考图恰好 1 张时生效。
+   * 上游不按 mask 生成（实测），出图后由 lib/mask-composite 本地合成兜底。
+   */
+  mask?: Blob | null;
   /** 生成失败时的渠道提示：返回该模型的其他可用渠道描述（拼接进失败信息） */
   getChannelHint?: (modelId: string, excludeNodeId?: string) => string | null;
 }
@@ -218,7 +224,7 @@ export function useImageGeneration(
   const {
     prompt, referenceImages, model, size, quality, n, compareMode, modelB,
     activeNodeId, activeNodeName, nodeB, refQuality, outputFormat,
-    overrideNode, getChannelHint,
+    overrideNode, getChannelHint, mask,
   } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
@@ -466,8 +472,10 @@ export function useImageGeneration(
 
     // cacheKey 按「节点+模型」维度:对比模式两个任务各自独立 key，
     // 同提示词同模型在不同节点间也不共享缓存
-    const buildKeyForModel = async (m: string, nodeKey: string) =>
-      buildCacheKey({
+    // 局部重绘：参考图恰好 1 张时蒙版才有效
+    const hasMask = Boolean(mask) && referencedImages.length === 1;
+    const buildKeyForModel = async (m: string, nodeKey: string) => {
+      const key = await buildCacheKey({
         prompt: trimmedPrompt,
         model: m,
         size,
@@ -475,6 +483,9 @@ export function useImageGeneration(
         nodeKey,
         referenceImages: referencedImages,
       });
+      // 带蒙版与不带蒙版的结果不可互相复用，缓存键必须区分
+      return hasMask ? `${key}#mask` : key;
+    };
 
     // 批次级 cacheKey（不含 n，每个任务恒 n=1）
     // 单模型即本批所有任务的 key;对比模式以 A 侧的 key 代表本批次做 in-flight claim
@@ -571,10 +582,11 @@ export function useImageGeneration(
        */
       const runTask = async (task: GenTask): Promise<void> => {
         const taskNode = task.node ?? nodeA;
-        // 1. 60s 缓存命中（AC4）—— 按任务自身「节点+模型」查缓存
-        const cached = await getPromptCache(
-          await buildKeyForModel(task.model, taskNode.baseUrl)
-        );
+        // 1. 60s 缓存命中（AC4）—— 按任务自身「节点+模型」查缓存。
+        //    局部重绘不走缓存：换一处蒙版就是另一张图，命中旧图会让人以为蒙版没生效
+        const cached = hasMask
+          ? null
+          : await getPromptCache(await buildKeyForModel(task.model, taskNode.baseUrl));
         if (cached) {
           const src = cached.results[task.slot % cached.results.length];
           // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
@@ -628,6 +640,10 @@ export function useImageGeneration(
           formData.append("n", "1");
           for (const blob of refBlobs) {
             formData.append("images", blob, `input_${task.slot}.png`);
+          }
+          // 局部重绘蒙版：服务端透传给 edits；真正的局部性由下方客户端合成保证
+          if (hasMask && mask) {
+            formData.append("mask", mask, "mask.png");
           }
 
           const response = await fetch("/api/generate", {
@@ -760,6 +776,29 @@ export function useImageGeneration(
             throw new ApiError("GEN_UPSTREAM_NO_TASK_ID");
           }
 
+          // 局部重绘：上游不按 mask 生成（实测，见 docs/inpaint/PLAN.md），
+          // 出图后把蒙版外的像素用底图盖回来，保证「只有涂过的地方变了」。
+          // 合成失败时保留上游原图——宁可不局部，也不要空图。
+          if (hasMask && mask) {
+            try {
+              const composited = await compositeWithMask({
+                outputB64: result.b64_json,
+                baseBlob: refBlobs[0],
+                maskBlob: mask,
+              });
+              if (result.imageUrl) URL.revokeObjectURL(result.imageUrl);
+              const merged = await base64ToBlob(composited, "image/png");
+              result = {
+                ...result,
+                b64_json: composited,
+                mime: "image/png",
+                imageUrl: URL.createObjectURL(merged),
+              };
+            } catch (e) {
+              console.warn("[generate] 局部重绘合成失败，回退为上游原图:", e);
+            }
+          }
+
           completed.push({ result, node: taskNode });
           markTerminal(task.id, { status: "success", result, progress: 1 });
           setResults((prev) => [...prev, result]);
@@ -813,10 +852,13 @@ export function useImageGeneration(
             byNodeModel.set(groupKey, { node, results: [c.result] });
           }
         }
-        for (const { node: maybeNode, results } of byNodeModel.values()) {
-          const node = maybeNode ?? nodeA;
-          const key = await buildKeyForModel(results[0].model, node.baseUrl);
-          setPromptCache(key, results, CACHE_TTL_MS).catch(() => {});
+        // 局部重绘结果不写缓存：同提示词不同蒙版会互相污染
+        if (!hasMask) {
+          for (const { node: maybeNode, results } of byNodeModel.values()) {
+            const node = maybeNode ?? nodeA;
+            const key = await buildKeyForModel(results[0].model, node.baseUrl);
+            setPromptCache(key, results, CACHE_TTL_MS).catch(() => {});
+          }
         }
         const record: HistoryRecord = {
           id: genId("hist"),
@@ -861,6 +903,7 @@ export function useImageGeneration(
     nodeB,
     refQuality,
     outputFormat,
+    mask,
     overrideNode,
     getChannelHint,
     baseUrl,

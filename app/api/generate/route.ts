@@ -37,6 +37,8 @@ function streamSyncGeneration(opts: {
   apiKey: string;
   proxyUrl?: string;
   outputFormat: "static" | "gif" | "svg";
+  /** 局部重绘蒙版（仅图生图分支使用；alpha=0 = 可重绘区，见 docs/inpaint/PLAN.md） */
+  maskFile?: File | null;
 }): NextResponse {
   const stream = new ReadableStream({
     async start(controller) {
@@ -97,6 +99,11 @@ function streamSyncGeneration(opts: {
                 filename: (file as File).name || `input_${i}.png`,
               });
             }
+          }
+          // 蒙版照传：上游目前会忽略它（实测，见 docs/inpaint/PLAN.md），
+          // 真正的局部性由客户端合成兜底；透传是为了上游将来支持时自动生效
+          if (opts.maskFile) {
+            editParts.push({ name: "mask", value: opts.maskFile, filename: "mask.png" });
           }
           res = await httpMultipartRequest(
             `${opts.baseURL}/images/edits`,
@@ -280,9 +287,18 @@ export async function POST(request: NextRequest) {
     const outputFormat: "static" | "gif" | "svg" =
       fmtRaw === "gif" || fmtRaw === "svg" ? fmtRaw : "static";
     const imageFiles = formData.getAll("images") as (File | Blob)[];
+    // 局部重绘蒙版（可选）：上游接受参数但不按它生成，局部性由客户端合成保证
+    const maskEntry = formData.get("mask");
+    const maskFile = maskEntry instanceof Blob ? (maskEntry as File) : null;
 
     if (!prompt) {
       const { body, status } = errorResponse("REQ_MISSING_PROMPT");
+      return NextResponse.json({ error: body }, { status });
+    }
+
+    // 蒙版只能配恰好 1 张图：多图 + mask 的语义上游不支持，提前拦掉而不是静默出错
+    if (maskFile && imageFiles.length !== 1) {
+      const { body, status } = errorResponse("REQ_MASK_NEEDS_SINGLE_IMAGE");
       return NextResponse.json({ error: body }, { status });
     }
 
@@ -335,6 +351,22 @@ export async function POST(request: NextRequest) {
           filename: (file as File).name || `input_${i}.png`,
         });
       }
+    }
+
+    // 局部重绘只对 /images/edits 有意义：直接走同步 edits，不探测异步端点
+    if (maskFile) {
+      return streamSyncGeneration({
+        syncUrl,
+        model,
+        upstreamPrompt,
+        sizeParam: upstreamSize,
+        imageFiles,
+        outputFormat,
+        maskFile,
+        baseURL,
+        apiKey,
+        proxyUrl: proxyUrl || undefined,
+      });
     }
 
     // 客户端记忆该节点为同步型（无异步端点/假异步）时跳过 async 探测，直接流式同步

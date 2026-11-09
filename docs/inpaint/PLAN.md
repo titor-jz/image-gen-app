@@ -1,6 +1,6 @@
 # PLAN · 局部重绘（Mask Inpainting）
 
-> 状态：**验证完成**（2026-11-09）—— 结论见 §0：mask **不被尊重**；中文提示词**曾被吞掉，已修**
+> 状态：**V1 已实现**（2026-11-09）—— 验证结论见 §0；实现落地见 §10
 > 关联：`AGENTS.md`（架构边界 / 已知坑）、`docs/model-routing/PLAN.md`（同套写法）
 > 证据图：`design-demos/probe-2026-11-09/`（8 张，编号对应 §0）· 探针工具：`scripts/inpaint-probe/`
 
@@ -224,3 +224,23 @@ app/api/generate/route.ts
 - [ ] 移动端触屏能画、能撤销、不滚页
 - [ ] 导出的 mask PNG 尺寸 == 上传图 blob 尺寸
 - [ ] 回归：普通图生图、GIF、SVG、对比模式、流式保活均不受影响
+
+## 10. V1 实现记录（2026-11-09）
+
+按 §6 的 `MASK_IGNORED` 分支落地：**上游照传 mask（将来支持时自动生效）+ 客户端合成兜底**（局部性由我们自己保证）。
+
+| 文件 | 改动 |
+|---|---|
+| `lib/mask-composite.ts` | 新增：canvas 合成 `结果 = 底图×(1−maskA) + 上游×maskA`，交界羽化 3px；尺寸以底图为准（保证 mask 逐像素对齐） |
+| `app/api/generate/route.ts` | 接收 `mask` 字段；**有 mask 直接走同步 edits**（不探测异步端点）；`REQ_MASK_NEEDS_SINGLE_IMAGE`（mask 必须配恰好 1 张图） |
+| `hooks/useImageGeneration.ts` | 参考图=1 张时 formData 带 mask；出图后调用合成；**局部重绘不走 60s 缓存**（换蒙版就是另一张图，命中旧图会让人以为蒙版没生效），缓存键加 `#mask` 区分 |
+| `components/UnifiedInputCard.tsx` | 参考图行新增「局部重绘 / 已标注」入口；`onOpenMaskEditor` 传 undefined = 不渲染（可用条件由调用方判断） |
+| `components/MaskEditor.tsx` | 蒙版绘制弹层（已存在，本次接线） |
+| `app/page.tsx` | 编排：三个入口（参考图行 / 结果卡 / 历史项）→ 统一回填成「参考图区唯一那张 + 蒙版」；参考图或格式变化时自动丢弃旧蒙版 |
+| `components/ResultCard.tsx` / `ResultGrid.tsx` | 结果卡新增「局部重绘」动作（可选 prop，不传则外观逐字节不变） |
+| `components/HistoryList.tsx` / `HistoryDrawer.tsx` | 历史项新增「局部重绘」动作（仅当该记录有 `b64_json`） |
+| `lib/error-messages.ts` | 新增 `REQ_MASK_NEEDS_SINGLE_IMAGE` |
+
+验证：`tsc --noEmit` / `eslint` / `npm run build` 全绿；`lib/mask-composite` 用编译后的真实模块在浏览器跑像素断言 **4/4**（蒙版外取底图、蒙版内取上游、羽化后远端不变）；API 层「只给 mask 不给图」返回 400 该错误码、带 mask 的请求 200 出图。
+
+**未做**：§8 的 V3（结果卡入口已在，但「以编辑结果为新图、原图保留」的对比视图未做）、移动端全屏预览里的入口。
