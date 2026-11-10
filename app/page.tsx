@@ -47,7 +47,7 @@ import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
-import type { AspectRatio, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
+import type { AspectRatio, GenerateResult, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
   () => import("@/components/HistoryDrawer").then((m) => m.HistoryDrawer),
@@ -303,6 +303,11 @@ export default function Home() {
   }, [setResults]);
 
 
+  /** 从图库移除单张：只影响当前展示，历史记录不动（历史里那条仍可回填） */
+  const handleRemoveResult = useCallback((target: GenerateResult) => {
+    setResults((prev) => prev.filter((r) => r.id !== target.id));
+  }, [setResults]);
+
   // 当前节点各清晰度档的实测能力（被动学习，见 lib/node-size-capability）。
   // 必须走 state + effect：localStorage 在 SSR 不存在，直接在 render/useMemo 里读会让
   // 服务端（无标记）与客户端首帧（有标记）的选项文案不一致 → hydration mismatch。
@@ -462,6 +467,7 @@ export default function Home() {
               hasRunning={loading}
               // 触屏：点图走全屏预览（可左右滑、Capacitor 内直接存相册）
               onPreviewRequest={isMobile ? setPreviewIndex : undefined}
+              onRemove={handleRemoveResult}
             />
           </div>
         </div>

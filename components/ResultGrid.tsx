@@ -25,9 +25,11 @@ interface ResultGridProps {
    * 不传则用内置的展开预览（桌面）。
    */
   onPreviewRequest?: (index: number) => void;
+  /** 从图库移除某一项；不传则结果卡上不显示叉号 */
+  onRemove?: (result: GenerateResult) => void;
 }
 
-export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGridProps) {
+export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: ResultGridProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
@@ -143,6 +145,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGrid
                     index={item.indexA}
                     onExpand={handleExpand}
                     onDownload={handleDownload}
+                    onRemove={onRemove}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
@@ -152,6 +155,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGrid
                     index={item.indexB}
                     onExpand={handleExpand}
                     onDownload={handleDownload}
+                    onRemove={onRemove}
                     onSaveToGallery={handleSaveToGallery}
                     appMode={canSaveToGallery}
                     getImageSrc={getImageSrc}
@@ -167,6 +171,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest }: ResultGrid
               index={item.index}
               onExpand={handleExpand}
               onDownload={handleDownload}
+              onRemove={onRemove}
               onSaveToGallery={handleSaveToGallery}
               appMode={canSaveToGallery}
               getImageSrc={getImageSrc}

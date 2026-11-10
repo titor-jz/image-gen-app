@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Download, FolderDown, ImageOff } from "lucide-react";
+import { Download, FolderDown, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { aspectOf } from "@/lib/aspect";
 import type { GenerateResult } from "@/lib/types";
@@ -95,6 +95,7 @@ export function ResultCard({
   onExpand,
   onDownload,
   onSaveToGallery,
+  onRemove,
   appMode = false,
   getImageSrc,
   className = "",
@@ -105,6 +106,8 @@ export function ResultCard({
   onDownload: (r: GenerateResult) => void;
   /** APP 环境下的保存到相册动作（appMode 为真时替代下载） */
   onSaveToGallery?: (r: GenerateResult) => void;
+  /** 从图库里移除这一张；不传则不渲染叉号 */
+  onRemove?: (r: GenerateResult) => void;
 
   /** Capacitor 壳内：卡片操作钮换成保存到相册 */
   appMode?: boolean;
@@ -123,7 +126,7 @@ export function ResultCard({
     <Button
       variant="secondary"
       size="icon"
-      className="pointer-events-auto absolute top-2 right-2 h-9 w-9 press sm:static sm:h-8 sm:w-8"
+      className="h-9 w-9 press sm:h-8 sm:w-8"
       onClick={(e) => {
         e.stopPropagation();
         if (appMode) onSaveToGallery?.(result);
@@ -169,8 +172,28 @@ export function ResultCard({
           触屏（<sm）没有 hover：遮罩改成不吃点击的透明层，操作钮缩到右上角，
           其余整块留给「点开看图」——否则居中的按钮会把点击吞掉，图点不开。
           桌面（≥sm）保持原来的居中遮罩 + hover 显隐。 */}
+      {/* 卡片操作钮：图库攒多了要能单张清掉，所以「移除」常驻在下载钮左边。
+          触屏（<sm）没有 hover：贴右上角，遮罩不吃点击，其余留给「点开看图」；
+          桌面（≥sm）居中成一组，hover 显隐。 */}
       <div className="pointer-events-none absolute inset-0 transition-base sm:flex sm:items-center sm:justify-center sm:bg-black/0 sm:opacity-0 sm:group-hover:bg-black/40 sm:group-hover:opacity-100">
-        {actionButton}
+        <div className="pointer-events-auto absolute top-2 right-2 flex items-center gap-1.5 sm:static sm:gap-2">
+          {onRemove && (
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-9 w-9 press sm:h-8 sm:w-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(result);
+              }}
+              aria-label="移除这张"
+              title="从图库移除"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+          {actionButton}
+        </div>
       </div>
     </div>
   );
