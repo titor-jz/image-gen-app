@@ -27,9 +27,7 @@ import { recordSizeOutcome, type SizeTier } from "@/lib/node-size-capability";
 import {
   addHistory,
   claimInFlight,
-  getPromptCache,
   releaseInFlight,
-  setPromptCache,
   updateInFlightStatus,
   updateInFlightTasks,
   type InFlightEntry,
@@ -50,7 +48,7 @@ import type {
 } from "@/lib/types";
 import type { Quality, ReferenceImage } from "@/components/UnifiedInputCard";
 
-const CACHE_TTL_MS = 60 * 1000;
+
 const POLL_BASE_MS = 1000;
 const POLL_MAX_MS = 10 * 1000;
 /** 单轮轮询窗口。4K/高质量图常需 3 分钟以上，超时后可点「继续等待」再续一轮 */
@@ -578,29 +576,9 @@ export function useImageGeneration(
        */
       const runTask = async (task: GenTask): Promise<void> => {
         const taskNode = task.node ?? nodeA;
-        // 1. 60s 缓存命中（AC4）—— 按任务自身「节点+模型」查缓存
-        const cached = await getPromptCache(
-          await buildKeyForModel(task.model, taskNode.baseUrl)
-        );
-        if (cached) {
-          const src = cached.results[task.slot % cached.results.length];
-          // 基于缓存的 b64_json 重建新对象，不复用缓存对象本身：
-          //  - 新 imageUrl（blob:）：缓存里的 imageUrl 是上次会话的 blob URL，可能已失效
-          //  - 新 id：cacheKey 不含 n，n 不同时取模会复用同一缓存对象，
-          //    复用会导致相同 result.id 与已存在 results 项造成 React key 冲突
-          const blob = await base64ToBlob(src.b64_json, src.mime);
-          const result: GenerateResult = {
-            ...src,
-            id: `gen-${Date.now()}-${task.slot}`,
-            imageUrl: URL.createObjectURL(blob),
-            nodeName: taskNode.name,
-            compareGroup,
-          };
-          completed.push({ result, node: taskNode });
-          markTerminal(task.id, { status: "success", result, progress: 1 });
-          setResults((prev) => [...prev, result]);
-          return;
-        }
+        // 这里**不做结果缓存**：以前相同提示词 60 秒内再点「生成」会直接复用旧图，
+        // 用户想重新出图却拿到同一张（且误以为是没生成）。防重复提交由批次级
+        // in-flight 抢占负责（见上方 claimInFlight），不会重复扣费。
 
         // 2. 独立 AbortController
         const controller = new AbortController();
@@ -838,25 +816,9 @@ export function useImageGeneration(
       // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
       await Promise.allSettled(newTasks.map((t) => runTask(t)));
 
-      // 4. 汇总：成功项按「节点+模型」分组写缓存；历史入库
+      // 4. 汇总：历史入库（不再写结果缓存，见 runTask 顶部说明）
       const batchResults = completed.map((c) => c.result);
       if (batchResults.length > 0) {
-        const byNodeModel = new Map<string, { node: GenTask["node"]; results: GenerateResult[] }>();
-        for (const c of completed) {
-          const node = c.node ?? nodeA;
-          const groupKey = `${node.baseUrl}\u0000${c.result.model}`;
-          const entry = byNodeModel.get(groupKey);
-          if (entry) {
-            entry.results.push(c.result);
-          } else {
-            byNodeModel.set(groupKey, { node, results: [c.result] });
-          }
-        }
-        for (const { node: maybeNode, results } of byNodeModel.values()) {
-          const node = maybeNode ?? nodeA;
-          const key = await buildKeyForModel(results[0].model, node.baseUrl);
-          setPromptCache(key, results, CACHE_TTL_MS).catch(() => {});
-        }
         const record: HistoryRecord = {
           id: genId("hist"),
           params: {
@@ -869,7 +831,7 @@ export function useImageGeneration(
             nodeBName: isCompare && crossNode ? nodeB?.name : undefined,
           },
           // 入库前剥掉内存态的 blob: URL —— 跨会话后必然失效，
-          // 历史回填时由 b64_json 重建（缓存命中路径同理），避免裂图
+          // 历史回填时由 b64_json 重建，避免裂图
           results: batchResults.map((r) => ({ ...r, imageUrl: undefined })),
           createdAt: Date.now(),
         };

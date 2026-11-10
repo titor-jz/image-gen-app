@@ -40,6 +40,7 @@ npm run deploy:cf      # Cloudflare 部署
 - **节点异步能力记忆**：探测结果按节点 id 存 localStorage（`lib/node-capability.ts`，7 天过期自动重探）。同步型节点（无端点/假异步——task_id 超 15s 才返回）生成时带 `asyncMode=skip` 直接走流式同步，省探测往返且免假异步挂死；中转升级出真异步后一周内自动纠正。
 - **错误处理契约**：API 路由只返回稳定 error code，用户文案统一在 `lib/error-messages.ts` 映射（命名 `<域>_<场景>`）。新增错误只加一行，不改 UI。
 - 任务编排（并发、单张取消、指数退避轮询）在 `hooks/useImageGeneration.ts`；多节点/模型状态在 `lib/api-config-context.tsx`。
+- **不要给生成结果加缓存**：曾经有过 60 秒结果缓存（相同提示词+模型+尺寸+画质+节点+参考图直接复用旧图），结果是用户点「生成」想重新出图却秒出同一张，还以为功能坏了 —— 越快再点越容易命中，所以表现为「有时候」正常。防重复提交靠的是批次级 in-flight 抢占（`claimInFlight`：相同参数的任务还在跑时直接拦下并提示"N 秒前已发起相同任务"），它已经覆盖双击/重复提交，不需要结果缓存。`lib/db.ts` 里的 `getPromptCache` / `setPromptCache` 目前无人调用，留着只是为了不为一处死代码去升 IndexedDB 版本，**不要接回去**。
 
 ## 已知坑
 
