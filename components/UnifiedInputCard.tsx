@@ -15,6 +15,7 @@ import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types"
 import type { ApiProfile } from "@/lib/api-config-context";
 import { capabilitySummary, type NodeSizeCapability } from "@/lib/node-size-capability";
 import { upstreamSizeFor } from "@/lib/size-map";
+import { toast } from "sonner";
 
 export interface ReferenceImage {
   id: string;
@@ -251,15 +252,35 @@ export function UnifiedInputCard({
   }, [processFile]);
 
   const removeImage = useCallback((id: string) => {
+    // 删图会让后面所有「图N」的序号前移——而提示词里的 @图N 是按序号解析的，
+    // 所以必须提醒一句，否则用户以为还是原来那张，实际引用到的已经换人了
+    const willShift =
+      /图\d+/.test(prompt) &&
+      referenceImages.findIndex((img) => img.id === id) < referenceImages.length - 1;
     onReferenceImagesChange(referenceImages.filter((img) => img.id !== id));
-  }, [referenceImages, onReferenceImagesChange]);
+    if (willShift) {
+      toast.info("已删除，提示词里的「图N」序号会跟着前移", {
+        description: "请核对一下引用的是不是你想要的那张",
+      });
+    }
+  }, [referenceImages, onReferenceImagesChange, prompt]);
 
-  const filteredMentions = referenceImages.filter((img) =>
-    img.name.toLowerCase().includes(mentionQuery.toLowerCase())
-  );
+  const filteredMentions = referenceImages
+    .map((img, i) => ({ img, no: i + 1 }))
+    .filter(({ img, no }) => {
+      const q = mentionQuery.trim().toLowerCase();
+      if (!q) return true;
+      // 文件名和序号都能搜：输入「图2」或直接「2」都能定位到第 2 张
+      return img.name.toLowerCase().includes(q) || `图${no}`.includes(q) || String(no) === q;
+    });
 
-  const insertMention = useCallback((img: ReferenceImage) => {
-    const tag = `@${img.name} `;
+  const insertMention = useCallback((img: ReferenceImage, no: number) => {
+    // 插入**序号**而不是文件名：
+    //  - 文件名可能很长，塞进提示词里把正文冲得没法读
+    //  - 文件可能重名/互为前缀（产品图.png / 产品图2.png），按名字匹配根本无法
+    //    判断你指的是哪张；序号天然唯一
+    // 解析侧 resolveReferencedImages 本来就支持「图N」写法
+    const tag = `@图${no} `;
     const textBefore = prompt.slice(0, mentionPos);
     const atIndex = textBefore.lastIndexOf("@");
     const beforeAt = atIndex >= 0 ? prompt.slice(0, atIndex) : prompt.slice(0, mentionPos);
@@ -274,7 +295,7 @@ export function UnifiedInputCard({
       if (e.key === "Escape") { setShowMentions(false); return; }
       if (e.key === "ArrowDown") { e.preventDefault(); setSelectedMentionIdx((p) => (p + 1) % filteredMentions.length); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setSelectedMentionIdx((p) => (p - 1 + filteredMentions.length) % filteredMentions.length); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(filteredMentions[selectedMentionIdx]); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); const pick = filteredMentions[selectedMentionIdx]; if (pick) insertMention(pick.img, pick.no); return; }
     }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); }
   }, [showMentions, filteredMentions, selectedMentionIdx, insertMention, onGenerate]);
@@ -408,6 +429,10 @@ export function UnifiedInputCard({
                     />
                   </div>
 
+                  {/* 序号徽标：提示词里写的就是这个编号，必须看得见对应关系 */}
+                  <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr-[2px] bg-black/60 px-1 text-[10px] leading-4 tabular-nums text-white/90">
+                    图{i + 1}
+                  </span>
                   <button
                     type="button"
                     className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-md ring-2 ring-background transition-base hover:bg-destructive/90 sm:-top-1.5 sm:-right-1.5"
@@ -736,12 +761,14 @@ export function UnifiedInputCard({
             <AtSign className="w-3 h-3" /> 选择参考图片（{filteredMentions.length} 张）
           </div>
           <div className="max-h-64 overflow-y-auto scrollbar-thin">
-            {filteredMentions.map((img, idx) => (
+            {filteredMentions.map(({ img, no }, idx) => (
               <button key={img.id}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-base ${idx === selectedMentionIdx ? "bg-accent" : "hover:bg-accent/60"}`}
-                onClick={() => insertMention(img)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
+                onClick={() => insertMention(img, no)} onMouseEnter={() => setSelectedMentionIdx(idx)}>
                 <img src={img.base64} alt={img.name} className="w-9 h-9 rounded-[2px] object-cover flex-shrink-0 border border-border/60" />
-                <span className="truncate flex-1">{img.name}</span>
+                {/* 插入的是序号，所以把序号摆在最显眼的位置；文件名退到次要位置做辨识 */}
+                <span className="shrink-0 rounded-[2px] border border-[color:var(--inst-line-2)] px-1 text-[11px] tabular-nums">图{no}</span>
+                <span className="truncate flex-1 text-muted-foreground">{img.name}</span>
               </button>
             ))}
           </div>

@@ -17,7 +17,7 @@ export function PromptGuide({ className = "" }: { className?: string }) {
       </p>
       <p className="mt-1">
         <span className="font-medium text-foreground/80">长度：</span>
-        上限 {MAX_PROMPT_CHARS} 字（含标点与空格）；引用参考图用 @图片名。
+        上限 {MAX_PROMPT_CHARS} 字（含标点与空格）；引用参考图打 @ 从列表里选，会插入「图1」「图2」这样的序号（比文件名短，也不会认错）。
       </p>
       <div className="mt-1.5">
         <span className="font-medium text-foreground/80">禁止内容：</span>
