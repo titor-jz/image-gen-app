@@ -86,26 +86,46 @@ async function getDB(): Promise<IDBPDatabase> {
 }
 
 /**
- * 历史记录写入。
+ * 历史记录条数上限（超出后从最旧的一端淘汰）。
  *
- * 每条记录里带全尺寸图片的 base64（一张 2K 就可能几 MB，一次 4 张更大），
- * 生成多了很容易顶到 IndexedDB 配额。顶到时 put 会抛 QuotaExceededError，
- * 而调用方以前是 `.catch(() => {})` —— 静默丢记录，用户只看到「刚生成的这张
- * 不在历史里」。所以这里遇到配额错误时先丢掉最旧的一批再重试一次。
+ * 为什么需要：每条记录带该批**全尺寸图片的 base64**（1K 一条 n=4 约 14 MB，
+ * 4K 可能上百 MB），只靠浏览器配额兜底的话，用户会在毫无预告的情况下写不进去。
+ * 100 条对个人使用足够，且给空间一个可预期的上界。
+ *
+ * 配额仍然可能先到（4K 大图），所以写了失败还有「先丢 20% 再重试」的兜底。
  */
+export const MAX_HISTORY_RECORDS = 100;
+
 export async function addHistory(record: HistoryRecord): Promise<void> {
   const db = await getDB();
   try {
     await db.put(HISTORY_STORE, record);
   } catch (err) {
     if (!isQuotaError(err)) throw err;
-    const all = await getAllHistory(); // 已按 createdAt 倒序
-    const dropCount = Math.max(1, Math.ceil(all.length * 0.2));
-    const tx = db.transaction(HISTORY_STORE, "readwrite");
-    for (const old of all.slice(-dropCount)) await tx.store.delete(old.id);
-    await tx.done;
+    // 配额顶满：先清掉最旧的一批腾地方，再写一次
+    await dropOldestHistory(db, 0.2);
     await db.put(HISTORY_STORE, record);
   }
+  // 常规淘汰：只删超出上限的部分
+  await dropOldestHistory(db, 0);
+}
+
+/**
+ * 从最旧的一端删记录。
+ * @param ratio 大于 0 时至少删 total×ratio 条（配额兜底用）；为 0 时只删超出上限的部分
+ */
+async function dropOldestHistory(
+  db: Awaited<ReturnType<typeof getDB>>,
+  ratio: number
+): Promise<void> {
+  const all = await getAllHistory(); // 已按 createdAt 倒序
+  const overCap = Math.max(0, all.length - MAX_HISTORY_RECORDS);
+  const byRatio = ratio > 0 ? Math.ceil(all.length * ratio) : 0;
+  const count = Math.max(overCap, byRatio);
+  if (count <= 0) return;
+  const tx = db.transaction(HISTORY_STORE, "readwrite");
+  for (const old of all.slice(-count)) await tx.store.delete(old.id);
+  await tx.done;
 }
 
 /** 是否存储配额错误（不同浏览器/包装层抛的形态不一，几种都认） */

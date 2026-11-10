@@ -13,6 +13,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useHistoryRecords } from "@/hooks/useHistoryRecords";
+import { MAX_HISTORY_RECORDS } from "@/lib/db";
 import { HistoryList } from "@/components/HistoryList";
 import type { HistoryRecord } from "@/lib/types";
 
@@ -84,6 +85,12 @@ export function HistoryDrawer({ onClose, onSelectRecord }: HistoryDrawerProps) {
         <ScrollArea className="flex-1 scrollbar-thin">
           <HistoryList records={records} onSelectRecord={onSelectRecord} onDelete={handleDelete} />
         </ScrollArea>
+        {/* 接近上限才提示：平时不占地方，真要开始淘汰旧的时必须说清楚 */}
+        {records.length >= MAX_HISTORY_RECORDS * 0.8 && (
+          <div className="px-4 py-2 border-t border-border text-[11px] text-muted-foreground">
+            已存 {records.length} 条，上限 {MAX_HISTORY_RECORDS} 条，超出后自动删最旧的
+          </div>
+        )}
       </div>
     </>
   );
