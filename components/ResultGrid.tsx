@@ -81,6 +81,11 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
     setZoom(1);
   };
 
+  // 展开预览的对象：results 可能因为「历史回填 / 单张移除」而变短或整体换掉，
+  // 此时 expandedIndex 可能越界 —— 直接读 expanded.xxx 会抛错白屏，
+  // 所以统一走这个派生值，取不到就不渲染展开块。
+  const expanded = expandedIndex !== null ? results[expandedIndex] ?? null : null;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 border-b border-border/70 pb-2">
@@ -183,7 +188,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
       })()}
 
       {/* 展开的完整预览 */}
-      {expandedIndex !== null && (
+      {expanded && expandedIndex !== null && (
         <div className="rounded-[3px] border border-border bg-card overflow-hidden animate-scale-in">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b border-border">
             <div className="flex items-center gap-2">
@@ -222,10 +227,10 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
               </Button>
               {/* 生成渠道信息：与结果卡/移动端全屏保持一致 */}
               <span className="inst-mono ml-1 max-w-64 truncate text-[12px] text-muted-foreground">
-                {results[expandedIndex].nodeName ? `${results[expandedIndex].nodeName} · ` : ""}
-                {results[expandedIndex].model}
-                {results[expandedIndex].size && results[expandedIndex].size !== "auto"
-                  ? ` · ${results[expandedIndex].size}`
+                {expanded.nodeName ? `${expanded.nodeName} · ` : ""}
+                {expanded.model}
+                {expanded.size && expanded.size !== "auto"
+                  ? ` · ${expanded.size}`
                   : ""}
               </span>
             </div>
@@ -260,7 +265,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => handleDownload(results[expandedIndex])}
+                  onClick={() => handleDownload(expanded)}
                   className="press"
                 >
                   <Download className="w-4 h-4 mr-2" />
@@ -273,7 +278,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => handleSaveToGallery(results[expandedIndex])}
+                  onClick={() => handleSaveToGallery(expanded)}
                   className="press"
                 >
                   <FolderDown className="w-4 h-4 mr-2" />
@@ -295,8 +300,8 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
 
           <div className="flex items-center justify-center p-2 sm:p-4 overflow-auto max-h-[70dvh]">
             <FadeInImage
-              src={getImageSrc(results[expandedIndex])}
-              alt={results[expandedIndex].prompt}
+              src={getImageSrc(expanded)}
+              alt={expanded.prompt}
               className="transition-slow"
               style={{
                 transform: `scale(${zoom})`,

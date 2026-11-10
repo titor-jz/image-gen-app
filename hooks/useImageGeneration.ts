@@ -135,21 +135,16 @@ function genId(prefix: string): string {
 /**
  * 解析提示词中的参考图引用
  * 优先级：
- *  1. "@名称" 显式引用
- *  2. "图1/图2" 序号引用
+ *  1. "图1/图2" 序号引用（序号唯一，不会被文件名重名/互为前缀干扰）
+ *  2. "@名称" 显式引用（兼容 2026-11-10 之前插入文件名的老提示词）
  *  3. 都没有 → 全部参考图
  */
 function resolveReferencedImages(
   prompt: string,
   referenceImages: ReferenceImage[]
 ): ReferenceImage[] {
-  // 1. @ 名称引用
-  const mentionImgs = referenceImages.filter((img) =>
-    prompt.includes(`@${img.name}`)
-  );
-  if (mentionImgs.length > 0) return mentionImgs;
-
-  // 2. 图N 序号引用
+  // 1. 序号引用优先。@ 现在插入的就是「图N」，且老提示词里的「图N」也走这条；
+  //    放在名字匹配之前，否则混用时 @图N 会被「@文件名」分支整段忽略
   const imgPattern = /图(\d+)/g;
   const matches = [...prompt.matchAll(imgPattern)];
   if (matches.length > 0) {
@@ -160,8 +155,20 @@ function resolveReferencedImages(
     if (unique.length > 0) return unique;
   }
 
+  // 2. 老提示词的 @文件名：要求 @ 后面是**完整名字且有边界**，
+  //    否则「@产品图.png」会把「产品图2.png」也算命中
+  const mentionImgs = referenceImages.filter((img) =>
+    new RegExp(`@${escapeRegExp(img.name)}(?![\\w.\\u4e00-\\u9fa5])`).test(prompt)
+  );
+  if (mentionImgs.length > 0) return mentionImgs;
+
   // 3. 全部参考图
   return [...referenceImages];
+}
+
+/** 正则转义：文件名会直接拼进 RegExp */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

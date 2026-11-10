@@ -252,18 +252,30 @@ export function UnifiedInputCard({
   }, [processFile]);
 
   const removeImage = useCallback((id: string) => {
-    // 删图会让后面所有「图N」的序号前移——而提示词里的 @图N 是按序号解析的，
-    // 所以必须提醒一句，否则用户以为还是原来那张，实际引用到的已经换人了
-    const willShift =
-      /图\d+/.test(prompt) &&
-      referenceImages.findIndex((img) => img.id === id) < referenceImages.length - 1;
-    onReferenceImagesChange(referenceImages.filter((img) => img.id !== id));
-    if (willShift) {
-      toast.info("已删除，提示词里的「图N」序号会跟着前移", {
-        description: "请核对一下引用的是不是你想要的那张",
-      });
+    const removedIdx = referenceImages.findIndex((img) => img.id === id);
+    const next = referenceImages.filter((img) => img.id !== id);
+
+    // 删图会让后面所有「图N」前移，而提示词是按序号解析的 ——
+    // 所以直接把提示词里的序号一起前移，保证引用仍然指向同一张图。
+    // 被删那张自己的引用没法自愈（没有别的图能顶上），保留原文由 toast 提醒核对。
+    if (removedIdx >= 0 && /图\d+/.test(prompt)) {
+      const rewritten = prompt.replace(/图(\d+)/g, (m, n) =>
+        Number(n) - 1 > removedIdx ? `图${Number(n) - 1}` : m
+      );
+      if (rewritten !== prompt) {
+        onPromptChange(rewritten);
+        toast.info("提示词里的「图N」已跟着前移", {
+          description: "引用关系没变；被删那张本身的引用请核对",
+        });
+      } else if (removedIdx < referenceImages.length - 1) {
+        toast.info("提示词引用了刚删掉的那张图", {
+          description: "它现在指向后面的图了，请核对",
+        });
+      }
     }
-  }, [referenceImages, onReferenceImagesChange, prompt]);
+
+    onReferenceImagesChange(next);
+  }, [referenceImages, onReferenceImagesChange, prompt, onPromptChange]);
 
   const filteredMentions = referenceImages
     .map((img, i) => ({ img, no: i + 1 }))

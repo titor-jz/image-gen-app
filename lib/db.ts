@@ -106,8 +106,11 @@ export async function addHistory(record: HistoryRecord): Promise<void> {
     await dropOldestHistory(db, 0.2);
     await db.put(HISTORY_STORE, record);
   }
-  // 常规淘汰：只删超出上限的部分
-  await dropOldestHistory(db, 0);
+  // 常规淘汰：先 count 快判，**只有真的超限才去全量反序列化**。
+  // 记录里带全尺寸图片的 base64，getAllHistory 在接近上限时一次要读几百 MB，
+  // 不能每次写入都做（count 是 O(1) 级别的元数据查询）。
+  const total = await db.count(HISTORY_STORE);
+  if (total > MAX_HISTORY_RECORDS) await dropOldestHistory(db, 0);
 }
 
 /**
