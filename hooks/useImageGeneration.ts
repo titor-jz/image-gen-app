@@ -835,7 +835,14 @@ export function useImageGeneration(
           results: batchResults.map((r) => ({ ...r, imageUrl: undefined })),
           createdAt: Date.now(),
         };
-        addHistory(record).catch(() => {});
+        // 写失败必须让用户知道：历史里存的是全尺寸图，配额满时写入会失败，
+        // 以前静默吞掉，表现为「刚生成的这张不在历史里」
+        addHistory(record).catch((err) => {
+          console.warn("[history] 写入失败:", err);
+          toast.error("这张图没能存进历史", {
+            description: "浏览器存储空间可能已满，清一下历史记录再试",
+          });
+        });
         saveSettings({
           defaultModel: model,
           defaultSize: size,

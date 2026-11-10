@@ -85,9 +85,35 @@ async function getDB(): Promise<IDBPDatabase> {
   return dbInstance;
 }
 
+/**
+ * 历史记录写入。
+ *
+ * 每条记录里带全尺寸图片的 base64（一张 2K 就可能几 MB，一次 4 张更大），
+ * 生成多了很容易顶到 IndexedDB 配额。顶到时 put 会抛 QuotaExceededError，
+ * 而调用方以前是 `.catch(() => {})` —— 静默丢记录，用户只看到「刚生成的这张
+ * 不在历史里」。所以这里遇到配额错误时先丢掉最旧的一批再重试一次。
+ */
 export async function addHistory(record: HistoryRecord): Promise<void> {
   const db = await getDB();
-  await db.put(HISTORY_STORE, record);
+  try {
+    await db.put(HISTORY_STORE, record);
+  } catch (err) {
+    if (!isQuotaError(err)) throw err;
+    const all = await getAllHistory(); // 已按 createdAt 倒序
+    const dropCount = Math.max(1, Math.ceil(all.length * 0.2));
+    const tx = db.transaction(HISTORY_STORE, "readwrite");
+    for (const old of all.slice(-dropCount)) await tx.store.delete(old.id);
+    await tx.done;
+    await db.put(HISTORY_STORE, record);
+  }
+}
+
+/** 是否存储配额错误（不同浏览器/包装层抛的形态不一，几种都认） */
+function isQuotaError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: string; code?: number; inner?: unknown };
+  if (e.name === "QuotaExceededError" || e.code === 22) return true;
+  return !!e.inner && isQuotaError(e.inner);
 }
 
 export async function getAllHistory(): Promise<HistoryRecord[]> {
