@@ -43,7 +43,7 @@ export type ErrorCode =
   // 客户端业务
   | "CLIENT_CANCELLED"
   | "CLIENT_INFLIGHT"
-  | "CLIENT_CACHE_DECODE";
+  | "HISTORY_WRITE_FAILED";
 
 export interface ErrorPayload {
   code: ErrorCode;
@@ -88,7 +88,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   // 客户端
   CLIENT_CANCELLED: "已取消生成",
   CLIENT_INFLIGHT: "已有相同请求在进行中，请等待当前任务完成",
-  CLIENT_CACHE_DECODE: "缓存数据损坏，将重新生成",
+  HISTORY_WRITE_FAILED: "这张图没能存进历史",
 };
 
 /**
@@ -124,7 +124,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
 
   CLIENT_CANCELLED: 200,
   CLIENT_INFLIGHT: 429,
-  CLIENT_CACHE_DECODE: 200,
+  HISTORY_WRITE_FAILED: 500,
 };
 
 /**

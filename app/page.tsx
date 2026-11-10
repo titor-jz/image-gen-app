@@ -6,7 +6,7 @@
  * 负责 UI 组装，所有业务逻辑已下沉到 hooks/：
  *  - useModelCatalog: 跨节点模型目录聚合（模型优先自动路由）
  *  - useInFlightRecovery: 启动时检测未完成任务
- *  - useImageGeneration: 核心生成 + 轮询 + 缓存 + IndexedDB
+ *  - useImageGeneration: 核心生成 + 轮询 + IndexedDB
  *
  * 本组件只做：
  *  1. 状态（提示词、参考图、模型/尺寸/质量）

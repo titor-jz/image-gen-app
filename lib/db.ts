@@ -115,7 +115,7 @@ export async function addHistory(record: HistoryRecord): Promise<void> {
  * @param ratio 大于 0 时至少删 total×ratio 条（配额兜底用）；为 0 时只删超出上限的部分
  */
 async function dropOldestHistory(
-  db: Awaited<ReturnType<typeof getDB>>,
+  db: IDBPDatabase<unknown>,
   ratio: number
 ): Promise<void> {
   const all = await getAllHistory(); // 已按 createdAt 倒序

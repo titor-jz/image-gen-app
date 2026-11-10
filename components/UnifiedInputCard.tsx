@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, Image as ImageIcon, Eraser, AtSign, Server, Wand2, Loader2, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SelectChip } from "@/components/SelectChip";
 import { PromptGuide } from "@/components/PromptGuide";
@@ -15,7 +16,6 @@ import type { AspectRatio, GenTask, ModelInfo, OutputFormat } from "@/lib/types"
 import type { ApiProfile } from "@/lib/api-config-context";
 import { capabilitySummary, type NodeSizeCapability } from "@/lib/node-size-capability";
 import { upstreamSizeFor } from "@/lib/size-map";
-import { toast } from "sonner";
 
 export interface ReferenceImage {
   id: string;

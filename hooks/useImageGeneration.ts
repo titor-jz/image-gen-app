@@ -5,8 +5,8 @@
  *
  * 每张图 = 一个独立 GenTask，独立 AbortController/进度/取消。
  *  - handleGenerate: 批次级 claimInFlight → 创建 N 个 submitting 任务
- *    → await Promise.allSettled(runTask×N) → 汇总 results/历史/缓存
- *  - runTask: 缓存命中/上游提交/指数退避轮询，单任务自决终态
+ *    → await Promise.allSettled(runTask×N) → 汇总 results、历史入库
+ *  - runTask: 上游提交/指数退避轮询，单任务自决终态（**不做结果缓存**，见 runTask 顶部）
  *  - cancelTask(id): abort 单个任务，不影响其他
  *  - results 跨批次累积；loading 由 tasks 派生
  *
@@ -330,8 +330,7 @@ export function useImageGeneration(
         };
         markTerminal(id, { status: "success", result, progress: 1 });
         setResults((prev) => [...prev, result]);
-        // 只补历史，不写 60s 缓存：任务未记录当时的参考图，
-        // 用空参考图列表写缓存会让后续无图请求命中错误结果
+        // 恢复出来的任务只补历史（没有结果缓存这回事，见 runTask 顶部说明）
         addHistory({
           id: genId("hist"),
           params: {
@@ -567,11 +566,10 @@ export function useImageGeneration(
       updateInFlightTasks(inFlightId, taskSnapshots).catch(() => {});
 
       // 本批成功结果（闭包收集，allSettled 后无需读过期 state）
-      // 携带产出它的节点快照，供按「节点+模型」分组写缓存
-      const completed: Array<{ result: GenerateResult; node: GenTask["node"] }> = [];
+      const completed: GenerateResult[] = [];
 
       /**
-       * 单任务流程：缓存命中 → success；否则 POST + 轮询 → success/failed/cancelled。
+       * 单任务流程：POST + 轮询 → success/failed/cancelled（无结果缓存，每次都会真的请求上游）。
        * 内部全 catch，不向上 throw（allSettled 仅用于等待，状态已在内部更新）。
        */
       const runTask = async (task: GenTask): Promise<void> => {
@@ -580,7 +578,7 @@ export function useImageGeneration(
         // 用户想重新出图却拿到同一张（且误以为是没生成）。防重复提交由批次级
         // in-flight 抢占负责（见上方 claimInFlight），不会重复扣费。
 
-        // 2. 独立 AbortController
+        // 1. 独立 AbortController
         const controller = new AbortController();
         abortMapRef.current.set(task.id, controller);
 
@@ -773,7 +771,7 @@ export function useImageGeneration(
             }
           }
 
-          completed.push({ result, node: taskNode });
+          completed.push(result);
           markTerminal(task.id, { status: "success", result, progress: 1 });
           setResults((prev) => [...prev, result]);
         } catch (err) {
@@ -813,11 +811,11 @@ export function useImageGeneration(
         }
       };
 
-      // 3. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
+      // 2. 并发执行本批 N 个任务（await 本批，不阻塞 UI/其他批次）
       await Promise.allSettled(newTasks.map((t) => runTask(t)));
 
-      // 4. 汇总：历史入库（不再写结果缓存，见 runTask 顶部说明）
-      const batchResults = completed.map((c) => c.result);
+      // 3. 汇总：历史入库（不再写结果缓存，见 runTask 顶部说明）
+      const batchResults = completed;
       if (batchResults.length > 0) {
         const record: HistoryRecord = {
           id: genId("hist"),
@@ -839,8 +837,8 @@ export function useImageGeneration(
         // 以前静默吞掉，表现为「刚生成的这张不在历史里」
         addHistory(record).catch((err) => {
           console.warn("[history] 写入失败:", err);
-          toast.error("这张图没能存进历史", {
-            description: "浏览器存储空间可能已满，清一下历史记录再试",
+          toast.error(getErrorMessage("HISTORY_WRITE_FAILED"), {
+            description: "浏览器存储空间不足时会出现；淘汰旧记录后会自动重试",
           });
         });
         saveSettings({
