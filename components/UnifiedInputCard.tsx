@@ -41,6 +41,12 @@ interface UnifiedInputCardProps {
 
   /** 当前节点各清晰度档的实测能力（被动学习自真实生成，未测过的档位不显示标记） */
   sizeCapability?: NodeSizeCapability | null;
+  /**
+   * 模型自动路由提示：选中模型不在激活节点、改为其他节点生成时传值。
+   * 页头节点 chip 显示的是「激活节点」，而本次实际调用的是路由后的节点；
+   * 不解释一句，两处名字不同就会被当成 bug。
+   */
+  routingHint?: { model: string; fromNode: string; toNode: string } | null;
   /** 探测该节点最高可用档位：传 undefined 不显示入口 */
   onProbeSize?: () => void;
   /** idle / confirm（再点一次才真跑）/ running */
@@ -148,6 +154,7 @@ export function UnifiedInputCard({
   profiles, activeNodeId, nodeBId, onNodeBChange,
   refQuality, onRefQualityChange,
   sizeCapability,
+  routingHint,
   onProbeSize, probeState = "idle",
   tasks, onCancelTask, onResumeTask, onDismissTask,
   onGenerate, onOptimizePrompt, optimizeLoading,
@@ -633,6 +640,15 @@ export function UnifiedInputCard({
                 />
               </div>
             </div>
+
+            {/* 模型自动路由：页头 chip 是「激活节点」，实际生成会换节点，必须先说清 */}
+            {routingHint && (
+              <p className="self-start pl-12 text-xs text-muted-foreground">
+                <b className="font-normal text-foreground">{routingHint.fromNode}</b>
+                {" 没有这个模型，本次将使用 "}
+                <b className="font-normal text-foreground">{routingHint.toNode}</b>
+              </p>
+            )}
 
             {/* 模型列表拉取失败：不再静默吞掉，给出原因与重试入口 */}
             {modelsError && !modelsLoading && (

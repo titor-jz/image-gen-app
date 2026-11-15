@@ -405,6 +405,15 @@ export default function Home() {
               onOptimizePrompt={handleOptimizePrompt}
               optimizeLoading={optimizeLoading}
               sizeCapability={sizeCapability}
+              routingHint={
+                routedNode
+                  ? {
+                      model: effectiveModel,
+                      fromNode: activeNode?.name ?? "当前节点",
+                      toNode: routedNode.name,
+                    }
+                  : null
+              }
               onProbeSize={activeNode ? handleProbeSize : undefined}
               probeState={probeState}
             />
@@ -424,7 +433,18 @@ export default function Home() {
             <span className="sep" aria-hidden="true" />
             <span>{compareMode ? "对比 · 每模型 1 张" : `${selectedN} 张`}</span>
             <span className="sep" aria-hidden="true" />
-            <span>节点 {routedNode?.name ?? activeNode?.name ?? "未配置"}</span>
+            <span
+              title={
+                routedNode
+                  ? `模型 ${effectiveModel} 不在激活节点 ${activeNode?.name ?? "（无）"}，已自动改用 ${routedNode.name} 生成`
+                  : undefined
+              }
+            >
+              节点 {routedNode?.name ?? activeNode?.name ?? "未配置"}
+              {routedNode && (
+                <span className="ml-1.5 opacity-60">自动路由</span>
+              )}
+            </span>
             <span className="ml-auto">提示词 {prompt.length} / {MAX_PROMPT_CHARS}</span>
           </div>
         </div>
