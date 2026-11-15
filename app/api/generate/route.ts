@@ -259,20 +259,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: body }, { status });
     }
 
-
-    // 动图模式注入两段指令（实测缺一不可，历史/回填仍存用户原文）：
-    //  1. 前缀声明 GIF 动图；2. 追加循环动态要求——只有前缀时，静态描述类提示词
-    //     （如「XX形象的卡通图」）模型会回静图（W1/W2 对照实测）
-    const upstreamPrompt =
-      outputFormat === "gif"
-        ? `生成无缝循环的GIF动图：${prompt}，画面包含持续的循环动态动作，帧与帧之间连续变化`
-        : prompt;
-
     // 与输入框 maxLength / 计数同源（lib/prompt-rules.ts），UI 与服务端不会各说各话
     if (prompt.length > MAX_PROMPT_CHARS) {
       const { body, status } = errorResponse("REQ_PROMPT_TOO_LONG", `上限 ${MAX_PROMPT_CHARS} 字`);
       return NextResponse.json({ error: body }, { status });
     }
+
+    // 参考图编号图例：上游只拿到图片本身，并不知道哪张是提示词里的「图2」。
+    // 不说清映射，模型只能按位置猜——实测就出现「@图2 却改了图1」。
+    // 客户端按「图N」上传时会在 refLabels 里带出编号（与上传顺序一一对应）。
+    const refLabelNums = String(formData.get("refLabels") ?? "")
+      .split(",")
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    const refLegend =
+      imageFiles.length >= 2 && refLabelNums.length === imageFiles.length
+        ? `参考图按上传顺序编号：${refLabelNums
+            .map((n, i) => `第${i + 1}张=图${n}`)
+            .join("，")}。提示词中的「图N」即指编号为图N的那张参考图。`
+        : "";
+
+    // 动图模式注入两段指令（实测缺一不可，历史/回填仍存用户原文）：
+    //  1. 前缀声明 GIF 动图；2. 追加循环动态要求——只有前缀时，静态描述类提示词
+    //     （如「XX形象的卡通图」）模型会回静图（W1/W2 对照实测）
+    const formatPrompt =
+      outputFormat === "gif"
+        ? `生成无缝循环的GIF动图：${prompt}，画面包含持续的循环动态动作，帧与帧之间连续变化`
+        : prompt;
+    const upstreamPrompt = refLegend ? `${refLegend}${formatPrompt}` : formatPrompt;
 
     const url = `${baseURL}/images/generations/async`;
     const syncUrl = `${baseURL}/images/generations`;

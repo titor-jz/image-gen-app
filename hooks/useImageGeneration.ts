@@ -138,11 +138,17 @@ function genId(prefix: string): string {
  *  1. "图1/图2" 序号引用（序号唯一，不会被文件名重名/互为前缀干扰）
  *  2. "@名称" 显式引用（兼容 2026-11-10 之前插入文件名的老提示词）
  *  3. 都没有 → 全部参考图
+ *
+ * 返回的 `images` **必须按原编号升序**：上传给上游的顺序就是界面上的「图1、图2」顺序。
+ * 曾经的 bug：按提示词里出现的先后顺序上传（"@图2 … @图1" → 图2 排第一张），
+ * 上游拿到的「第 1 张图」其实是用户眼里的图2，模型按位置理解就会改错那张。
+ * `numbers` 与 `images` 一一对应，是这些图在界面上的原始编号（1 起），
+ * 供上传文件名和上方图例使用。
  */
 function resolveReferencedImages(
   prompt: string,
   referenceImages: ReferenceImage[]
-): ReferenceImage[] {
+): { images: ReferenceImage[]; numbers: number[] } {
   // 1. 序号引用优先。@ 现在插入的就是「图N」，且老提示词里的「图N」也走这条；
   //    放在名字匹配之前，否则混用时 @图N 会被「@文件名」分支整段忽略
   const imgPattern = /图(\d+)/g;
@@ -151,8 +157,13 @@ function resolveReferencedImages(
     const order = [...matches]
       .map((m) => parseInt(m[1], 10) - 1)
       .filter((i) => i >= 0 && i < referenceImages.length);
-    const unique = [...new Set(order)].map((i) => referenceImages[i]);
-    if (unique.length > 0) return unique;
+    const sorted = [...new Set(order)].sort((a, b) => a - b);
+    if (sorted.length > 0) {
+      return {
+        images: sorted.map((i) => referenceImages[i]),
+        numbers: sorted.map((i) => i + 1),
+      };
+    }
   }
 
   // 2. 老提示词的 @文件名：要求 @ 后面是**完整名字且有边界**，
@@ -160,10 +171,19 @@ function resolveReferencedImages(
   const mentionImgs = referenceImages.filter((img) =>
     new RegExp(`@${escapeRegExp(img.name)}(?![\\w.\\u4e00-\\u9fa5])`).test(prompt)
   );
-  if (mentionImgs.length > 0) return mentionImgs;
+  if (mentionImgs.length > 0) {
+    // 保持界面顺序（不是提示词书写顺序），编号取原始下标
+    const picked = referenceImages
+      .map((img, i) => ({ img, i }))
+      .filter(({ img }) => mentionImgs.includes(img));
+    return { images: picked.map((p) => p.img), numbers: picked.map((p) => p.i + 1) };
+  }
 
   // 3. 全部参考图
-  return [...referenceImages];
+  return {
+    images: [...referenceImages],
+    numbers: referenceImages.map((_, i) => i + 1),
+  };
 }
 
 /** 正则转义：文件名会直接拼进 RegExp */
@@ -449,7 +469,11 @@ export function useImageGeneration(
     setError(null);
     setErrorCode(null);
 
-    const referencedImages = resolveReferencedImages(prompt, referenceImages);
+    // 上传顺序 = 界面「图1、图2」顺序，numbers 是它们的原始编号（供文件名/图例）
+    const { images: referencedImages, numbers: refNumbers } = resolveReferencedImages(
+      prompt,
+      referenceImages
+    );
     const trimmedPrompt = prompt.trim();
     const batchId = genId("batch");
 
@@ -537,6 +561,9 @@ export function useImageGeneration(
         const r = await fetch(img.base64);
         refBlobs.push(await r.blob());
       }
+      // 上传文件名带上原始编号（image_2.png = 界面上的图2）：原先每张都叫
+      // input_0.png，上游即使想看文件名也区分不出哪张是哪张
+      const refNames = referencedImages.map((_, i) => `image_${refNumbers[i] ?? i + 1}.png`);
 
       // 创建 taskCount 个 submitting 任务
       // 对比模式:任务0用 model+节点A,任务1用 modelB+节点B;非对比:全部用当前配置
@@ -616,8 +643,13 @@ export function useImageGeneration(
           formData.append("format", outputFormat ?? "static");
           // 上游 gpt-image-2 仅支持 n=1，单任务永远 n=1；多张靠前端并发
           formData.append("n", "1");
-          for (const blob of refBlobs) {
-            formData.append("images", blob, `input_${task.slot}.png`);
+          for (let i = 0; i < refBlobs.length; i++) {
+            formData.append("images", refBlobs[i], refNames[i]);
+          }
+          // 编号清单：服务端据此在提示词前加「第几张=图几」的图例，让上游知道
+          // 「图2」指的是哪一张（不给映射，模型只能按位置猜，实测会改错那张）
+          if (refBlobs.length > 0) {
+            formData.append("refLabels", refNumbers.join(","));
           }
 
           const response = await fetch("/api/generate", {
