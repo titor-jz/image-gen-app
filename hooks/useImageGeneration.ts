@@ -88,6 +88,12 @@ export interface UseImageGenerationOptions {
   refQuality?: "auto" | "hd" | "original";
   /** 输出格式（static=静图 / gif=动图）；gif 时服务端会在提示词前注入动图指令 */
   outputFormat?: OutputFormat;
+  /**
+   * 用户在参考图卡上点选的「本次要修改的主体」编号（1 起）。
+   * 有值时上传**全部**参考图（否则没被 @ 到的那几张模型根本看不到），
+   * 并把编号与主体告知服务端；缺省时服务端会尝试从提示词里的「图N」推断。
+   */
+  primaryRefNumber?: number | null;
   /** 模型优先路由：目录解析出的节点（选中模型在激活节点缺失时由页面传入）。
    *  提供时 nodeA 整体替换为该节点（含 Key），能力记忆/缓存/结果标注随之跟随 */
   overrideNode?: {
@@ -248,7 +254,7 @@ export function useImageGeneration(
   const {
     prompt, referenceImages, model, size, quality, n, compareMode, modelB,
     activeNodeId, activeNodeName, nodeB, refQuality, outputFormat,
-    overrideNode, getChannelHint,
+    primaryRefNumber, overrideNode, getChannelHint,
   } = options;
 
   // API 鉴权配置（响应式）：修改后下次 handleGenerate 自动使用最新值
@@ -474,6 +480,14 @@ export function useImageGeneration(
       prompt,
       referenceImages
     );
+    // 用户在图卡上点选了「主体」时，这是一次「以某张为主、其余作参考」的编辑：
+    // 全部参考图都要上传（不然没 @ 到的几张模型看不到），编号沿用界面顺序。
+    const primaryNo =
+      primaryRefNumber && primaryRefNumber >= 1 && primaryRefNumber <= referenceImages.length
+        ? primaryRefNumber
+        : null;
+    const uploadImages = primaryNo ? [...referenceImages] : referencedImages;
+    const uploadNumbers = primaryNo ? referenceImages.map((_, i) => i + 1) : refNumbers;
     const trimmedPrompt = prompt.trim();
     const batchId = genId("batch");
 
@@ -508,7 +522,7 @@ export function useImageGeneration(
         size,
         quality,
         nodeKey,
-        referenceImages: referencedImages,
+        referenceImages: uploadImages,
       });
 
     // 批次级 cacheKey（不含 n，每个任务恒 n=1）
@@ -557,13 +571,13 @@ export function useImageGeneration(
     try {
       // 解码参考图一次，N 个任务共享
       const refBlobs: Blob[] = [];
-      for (const img of referencedImages) {
+      for (const img of uploadImages) {
         const r = await fetch(img.base64);
         refBlobs.push(await r.blob());
       }
       // 上传文件名带上原始编号（image_2.png = 界面上的图2）：原先每张都叫
       // input_0.png，上游即使想看文件名也区分不出哪张是哪张
-      const refNames = referencedImages.map((_, i) => `image_${refNumbers[i] ?? i + 1}.png`);
+      const refNames = uploadImages.map((_, i) => `image_${uploadNumbers[i] ?? i + 1}.png`);
 
       // 创建 taskCount 个 submitting 任务
       // 对比模式:任务0用 model+节点A,任务1用 modelB+节点B;非对比:全部用当前配置
@@ -649,7 +663,9 @@ export function useImageGeneration(
           // 编号清单：服务端据此在提示词前加「第几张=图几」的图例，让上游知道
           // 「图2」指的是哪一张（不给映射，模型只能按位置猜，实测会改错那张）
           if (refBlobs.length > 0) {
-            formData.append("refLabels", refNumbers.join(","));
+            formData.append("refLabels", uploadNumbers.join(","));
+            // 用户点选的「主体」：服务端在图例里点名「只改这张，其余别动」
+            if (primaryNo) formData.append("refPrimary", String(primaryNo));
           }
 
           const response = await fetch("/api/generate", {
@@ -906,6 +922,7 @@ export function useImageGeneration(
     nodeB,
     refQuality,
     outputFormat,
+    primaryRefNumber,
     overrideNode,
     getChannelHint,
     baseUrl,

@@ -272,11 +272,26 @@ export async function POST(request: NextRequest) {
       .split(",")
       .map((s) => parseInt(s, 10))
       .filter((n) => Number.isInteger(n) && n > 0);
+    // 「本次只改哪张」：客户端点选的主体优先；没点选时从提示词推断——
+    // 只点名了一张就让那张当主体，点名多张说明用户自己说清了，不插话替它决定
+    const explicitPrimary = parseInt(String(formData.get("refPrimary") ?? ""), 10);
+    let primaryNo =
+      Number.isInteger(explicitPrimary) && explicitPrimary > 0 ? explicitPrimary : 0;
+    if (!primaryNo) {
+      const mentioned = [
+        ...new Set(Array.from(prompt.matchAll(/图(\d+)/g)).map((m) => parseInt(m[1], 10))),
+      ].filter((n) => n >= 1 && n <= imageFiles.length);
+      if (mentioned.length === 1) primaryNo = mentioned[0];
+    }
+    const primaryPos = primaryNo ? refLabelNums.indexOf(primaryNo) + 1 : 0;
     const refLegend =
       imageFiles.length >= 2 && refLabelNums.length === imageFiles.length
         ? `参考图按上传顺序编号：${refLabelNums
             .map((n, i) => `第${i + 1}张=图${n}`)
-            .join("，")}。提示词中的「图N」即指编号为图N的那张参考图。`
+            .join("，")}。提示词中的「图N」即指编号为图N的那张参考图。` +
+          (primaryPos > 0
+            ? `本次只需要修改图${primaryNo}（第${primaryPos}张），其余参考图只作参考，保持原样不要修改。`
+            : "")
         : "";
 
     // 动图模式注入两段指令（实测缺一不可，历史/回填仍存用户原文）：

@@ -61,6 +61,9 @@ export default function Home() {
   // 1. 输入状态（默认与 SSR 一致，hydrate 后由 useEffect 从 localStorage 同步）
   const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  // 多张参考图时「本轮要修改的是哪张」（点缩略图切换）。
+  // 声明后上传全部参考图，并让上游只改这一张——用户不必在提示词里写编号。
+  const [primaryRefId, setPrimaryRefId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelInfo["id"]>("gpt-image-2");
   const [selectedSize, setSelectedSize] = useState<AspectRatio>("auto");
   const [selectedQuality, setSelectedQuality] = useState<Quality>("1k");
@@ -169,6 +172,14 @@ export default function Home() {
     [catalog, profiles]
   );
 
+  // 主体编号（1 起，0 = 未指定）。参考图被删/回填替换后自动视为未指定——
+  // 用派生值而不是 effect 清理，避免在 effect 体内 setState 触发级联渲染
+  const validPrimaryRefId =
+    primaryRefId && referenceImages.some((r) => r.id === primaryRefId) ? primaryRefId : null;
+  const primaryRefNumber = validPrimaryRefId
+    ? referenceImages.findIndex((r) => r.id === validPrimaryRefId) + 1
+    : 0;
+
   // 4. 核心生成流程（任务级状态：并发 + 单张取消）
   const {
     results, loading, error, errorCode, tasks,
@@ -184,6 +195,7 @@ export default function Home() {
     modelB: modelB as ModelInfo["id"],
     refQuality,
     outputFormat,
+    primaryRefNumber: primaryRefNumber || null,
     overrideNode: routedNode
       ? {
           id: routedNode.id,
@@ -387,6 +399,8 @@ export default function Home() {
               onNChange={setSelectedN}
               refQuality={refQuality}
               onRefQualityChange={setRefQuality}
+              primaryRefId={validPrimaryRefId}
+              onPrimaryRefChange={setPrimaryRefId}
               outputFormat={outputFormat}
               onOutputFormatChange={setOutputFormat}
               compareMode={compareMode}

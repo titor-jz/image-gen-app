@@ -54,6 +54,12 @@ interface UnifiedInputCardProps {
 
   /** 支持直接传新数组或函数式更新（批量上传并发追加时必须用函数式，避免旧闭包互相覆盖） */
   onReferenceImagesChange: React.Dispatch<React.SetStateAction<ReferenceImage[]>>;
+  /**
+   * 本轮要修改的参考图 id（点缩略图切换）。仅多张参考图时有意义：
+   * 有值时上传全部参考图，并告知上游「只改这张，其余别动」。
+   */
+  primaryRefId?: string | null;
+  onPrimaryRefChange?: (id: string | null) => void;
   /** 节点切换后新模型列表加载中（chip 显示加载提示，避免误以为旧列表可用） */
   modelsLoading?: boolean;
   /** 模型列表拉取失败原因（null=成功）；失败时 UI 显示兜底列表+重试入口 */
@@ -147,6 +153,7 @@ const MAX_COUNT = 8;
 
 export function UnifiedInputCard({
   prompt, onPromptChange, referenceImages, onReferenceImagesChange,
+  primaryRefId, onPrimaryRefChange,
   models, modelsLoading, modelsError, onReloadModels, selectedModel, onModelChange, selectedSize, onSizeChange,
   selectedQuality, onQualityChange, selectedN, onNChange,
   compareMode, onCompareModeChange, modelB, onModelBChange,
@@ -433,6 +440,14 @@ export function UnifiedInputCard({
           {/* 参考图行：缩略图 + 添加入口 + 压缩档位（从工具栏移到这里，语义归位） */}
           <div className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-dashed border-border/70 pt-3">
             {referenceImages.map((img, i) => (
+              (() => {
+                // 多张参考图时才提供「改这张」的选择：单张不存在歧义
+                const canPickPrimary = referenceImages.length >= 2 && Boolean(onPrimaryRefChange);
+                const isPrimary = img.id === primaryRefId;
+                const togglePrimary = canPickPrimary
+                  ? () => onPrimaryRefChange?.(isPrimary ? null : img.id)
+                  : undefined;
+                return (
               <div
                 key={img.id}
                 className="animate-fade-up flex flex-col items-center gap-1"
@@ -440,13 +455,46 @@ export function UnifiedInputCard({
               >
                 {/* 外层不裁剪，删除按钮悬浮在缩略图右上角才能完整显示 */}
                 <div className="relative group">
-                  <div className="h-14 w-11 overflow-hidden rounded-[2px] border border-[color:var(--inst-line-2)] transition-base hover:border-foreground">
+                  <div
+                    className={`h-14 w-11 overflow-hidden rounded-[2px] border transition-base ${
+                      isPrimary
+                        ? "border-[color:var(--inst-accent)] ring-2 ring-[color:var(--inst-accent)] ring-offset-1 ring-offset-background"
+                        : "border-[color:var(--inst-line-2)] hover:border-foreground"
+                    }${canPickPrimary ? " cursor-pointer" : ""}`}
+                    onClick={togglePrimary}
+                    role={canPickPrimary ? "button" : undefined}
+                    tabIndex={canPickPrimary ? 0 : undefined}
+                    onKeyDown={
+                      canPickPrimary
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              togglePrimary?.();
+                            }
+                          }
+                        : undefined
+                    }
+                    title={
+                      canPickPrimary
+                        ? isPrimary
+                          ? "点一下取消「这次只改这张」"
+                          : "点一下设为本轮要修改的那张，其余参考图只作参考"
+                        : undefined
+                    }
+                  >
                     <img
                       src={img.base64}
                       alt={img.name}
                       className="h-full w-full object-cover transition-slow group-hover:scale-110"
                     />
                   </div>
+
+                  {/* 主体角标：与「图N」徽标分列左右，避免和删除钮挤在一起 */}
+                  {isPrimary && (
+                    <span className="pointer-events-none absolute top-0 left-0 rounded-br-[2px] bg-[color:var(--inst-accent)] px-1 text-[10px] leading-4 text-white">
+                      改
+                    </span>
+                  )}
 
                   {/* 序号徽标：提示词里写的就是这个编号，必须看得见对应关系 */}
                   <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr-[2px] bg-black/60 px-1 text-[10px] leading-4 tabular-nums text-white/90">
@@ -465,6 +513,8 @@ export function UnifiedInputCard({
                   {img.name}
                 </span>
               </div>
+                );
+              })()
             ))}
 
             {!isFull && (
@@ -498,6 +548,17 @@ export function UnifiedInputCard({
                 { value: "original", label: "原图直传" },
               ]}
             />
+
+            {/* 多张参考图时的用法提示：点缩略图即可声明「这次只改这张」，
+                不需要在提示词里写编号，也不用担心模型改错哪张 */}
+            {referenceImages.length >= 2 && onPrimaryRefChange && (
+              <span className="text-xs text-muted-foreground">
+                {primaryRefId
+                  ? "已指定「改这张」，其余图只作参考"
+                  : "点缩略图可指定「这次只改这张」"}
+              </span>
+            )}
+
 
 
 
