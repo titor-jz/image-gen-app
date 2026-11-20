@@ -362,7 +362,8 @@ export function useImageGeneration(
           createdAt: Date.now(),
         };
         markTerminal(id, { status: "success", result, progress: 1 });
-        setResults((prev) => [...prev, result]);
+        // 新图放最前：图库按「最新在前」排，用户点完生成第一眼就能看到结果
+        setResults((prev) => [result, ...prev]);
         // 恢复出来的任务只补历史（没有结果缓存这回事，见 runTask 顶部说明）
         addHistory({
           id: genId("hist"),
@@ -703,7 +704,8 @@ export function useImageGeneration(
                 const msg = JSON.parse(line) as {
                   type: string;
                   images?: Array<{ b64_json: string; mime: string }>;
-                  error?: string;
+                  /** errorResponse 的 body：早期版本是 JSON 字符串，现在是对象，两种都要认 */
+                  error?: unknown;
                 };
                 if (msg.type === "heartbeat") continue;
                 if (msg.type === "result") {
@@ -711,18 +713,24 @@ export function useImageGeneration(
                   continue;
                 }
                 if (msg.type === "error") {
-                  // error 字段是 errorResponse 的 body（JSON 字符串），解析出稳定 code + 文案；
-                  // code 来自自家 errorResponse，必然是合法 ErrorCode
-                  let code: ErrorCode = "GEN_UPSTREAM_FAILED";
-                  let message = msg.error ?? "上游生成失败";
-                  try {
-                    const parsed = JSON.parse(msg.error ?? "");
-                    code = (parsed.error?.code ?? code) as ErrorCode;
-                    message = parsed.error?.message ?? message;
-                  } catch {
-                    // body 非 JSON 时按原文展示
+                  // 流式分支发的是 errorResponse 的 body **本体**（route.ts: send({type:"error", error: body})），
+                  // 不像 HTTP 分支那样包一层 { error: body }；老版本还把它 JSON.stringify 过一遍。
+                  // 所以先解字符串，再统一交给 parseErrorResponse —— 别自己按 body.error 取，
+                  // 那一层在这里并不存在（曾因此让 code 恒为 GEN_UPSTREAM_FAILED、上游原话全丢）。
+                  let body: unknown = msg.error;
+                  if (typeof body === "string") {
+                    try {
+                      body = JSON.parse(body);
+                    } catch {
+                      // 不是 JSON：parseErrorResponse 会把原串当 message 用
+                    }
                   }
-                  throw new ApiError(code, message);
+                  const parsed = parseErrorResponse({ error: body });
+                  // details 才是上游原话（如「请上传需要参考的图片」）；message 只是通用文案
+                  const raw = parsed.details ?? parsed.message;
+                  // 上游原话可能很长（agent 式渠道会整段回话），截断免得撑爆错误条
+                  const details = raw && raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
+                  throw new ApiError(parsed.code, details);
                 }
               }
             }
@@ -828,7 +836,8 @@ export function useImageGeneration(
 
           completed.push(result);
           markTerminal(task.id, { status: "success", result, progress: 1 });
-          setResults((prev) => [...prev, result]);
+          // 同上：图库最新在前
+          setResults((prev) => [result, ...prev]);
         } catch (err) {
           const isAbort =
             (err instanceof DOMException && err.name === "AbortError") ||

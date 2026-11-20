@@ -45,8 +45,7 @@ import { getNodeSizeCapability, type NodeSizeCapability } from "@/lib/node-size-
 import { probeMaxTier } from "@/lib/probe-size";
 import { usePromptOptimize } from "@/hooks/usePromptOptimize";
 import { isCapacitor } from "@/lib/capacitor-env";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { FullscreenPreview } from "@/components/mobile/FullscreenPreview";
+import { ImageViewer } from "@/components/ImageViewer";
 import type { AspectRatio, GenerateResult, HistoryRecord, ModelInfo, OutputFormat } from "@/lib/types";
 
 const HistoryDrawer = dynamic(
@@ -228,11 +227,12 @@ export default function Home() {
   // 6. 历史抽屉
   const [showHistory, setShowHistory] = useState(false);
 
-  // 6.0 全屏预览（手机/触屏：点图全屏、可左右滑、Capacitor 内直接存相册）
-  //     桌面仍用 ResultGrid 内置的展开预览，不额外套全屏层。
-  const isMobile = useIsMobile();
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-  // Capacitor 壳内全屏预览显示「保存到相册」（a[download] 无效）；挂载后检测
+  // 6.0 图片查看器（桌面与移动共用）：点图盖住窗口查看，可切换 / 缩放 /
+  //     Capacitor 内直接存相册。预览按「结果 id」锚定而不是下标——
+  //     新图是前插的，下标会整体后移，按下标记住就会看成别的一张。
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewIndex = previewId === null ? -1 : results.findIndex((r) => r.id === previewId);
+  // Capacitor 壳内查看器显示「保存到相册」（a[download] 无效）；挂载后检测
   const [canSaveToGallery, setCanSaveToGallery] = useState(false);
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
@@ -240,17 +240,17 @@ export default function Home() {
   }, []);
 
   // 6.1 Android 硬件返回键（仅 Capacitor 壳内生效）：
-  //     全屏预览 → 历史抽屉 → 退出应用（SPA 无浏览历史可回退）。
+  //     图片查看器 → 历史抽屉 → 退出应用（SPA 无浏览历史可回退）。
   //     状态经 ref 读取、监听器只在挂载时注册一次——
   //     按依赖重挂会在 cleanup 与 await 之间产生竞态、累积监听器（见评审 A-4）。
   const showHistoryRef = useRef(showHistory);
   useEffect(() => {
     showHistoryRef.current = showHistory;
   }, [showHistory]);
-  const previewRef = useRef(previewIndex);
+  const previewRef = useRef(previewId);
   useEffect(() => {
-    previewRef.current = previewIndex;
-  }, [previewIndex]);
+    previewRef.current = previewId;
+  }, [previewId]);
 
   useEffect(() => {
     if (!isCapacitor()) return;
@@ -261,7 +261,7 @@ export default function Home() {
         const { App } = await import("@capacitor/app");
         const l = await App.addListener("backButton", () => {
           if (previewRef.current !== null) {
-            setPreviewIndex(null);
+            setPreviewId(null);
             return;
           }
           if (showHistoryRef.current) {
@@ -295,9 +295,11 @@ export default function Home() {
     setSelectedQuality((record.params.quality || "1k") as Quality);
     // 历史里的 imageUrl 是上次会话的 blob: URL，跨会话必已失效；
     // 置空让 getImageSrc 走 b64_json 的 data URL 兜底，
-    // 否则 <img> 加载失败且无 onError，卡片会渲染成永久透明的空块
+    // 否则 <img> 加载失败且无 onError，卡片会渲染成永久透明的空块。
+    // 顺序要反过来：历史按「生成先后」存，图库按「最新在前」排，
+    // 不反转的话回填后最新一张又跑到末位（与刚生成时的排列方向正好相反）。
     setResults(
-      record.results.map((r) => ({
+      [...record.results].reverse().map((r) => ({
         ...r,
         imageUrl: r.imageUrl?.startsWith("blob:") ? undefined : r.imageUrl,
       }))
@@ -365,7 +367,7 @@ export default function Home() {
 
   return (
     /* ui-instrument：仪器面板视觉层（见 globals.css）。手机与桌面用同一套结构与背景，
-       只在触屏上额外挂一层全屏预览。 */
+       点图统一由窗口级查看器（ImageViewer，portal 到 body）接管，网格不就地展开。 */
     <div className="ui-instrument flex flex-col h-dvh bg-background">
       <Header onShowHistory={() => setShowHistory(true)} />
 
@@ -499,21 +501,21 @@ export default function Home() {
             <ResultGrid
               results={results}
               hasRunning={loading}
-              // 触屏：点图走全屏预览（可左右滑、Capacitor 内直接存相册）
-              onPreviewRequest={isMobile ? setPreviewIndex : undefined}
+              // 点图 → 窗口级查看器（网格内不再就地展开）
+              onPreviewRequest={(i) => setPreviewId(results[i]?.id ?? null)}
               onRemove={handleRemoveResult}
             />
           </div>
         </div>
       </main>
 
-      {/* 全屏预览层：只在触屏点图后挂载 */}
-      {isMobile && previewIndex !== null && results[previewIndex] && (
-        <FullscreenPreview
+      {/* 图片查看器：点图后盖住整个窗口（内容被移除时 previewIndex 变 -1，自动关闭） */}
+      {previewIndex >= 0 && (
+        <ImageViewer
           results={results}
           index={previewIndex}
-          onIndexChange={setPreviewIndex}
-          onClose={() => setPreviewIndex(null)}
+          onIndexChange={(i) => setPreviewId(results[i]?.id ?? null)}
+          onClose={() => setPreviewId(null)}
           appMode={canSaveToGallery}
         />
       )}

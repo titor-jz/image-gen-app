@@ -24,6 +24,7 @@ export function FadeInImage({
   className,
   style,
   onRatio,
+  onNatural,
 }: {
   src: string;
   alt: string;
@@ -31,15 +32,19 @@ export function FadeInImage({
   style?: React.CSSProperties;
   /** 图片解码后回报自然宽高比（用于「画幅未知」的结果按真实比例排版） */
   onRatio?: (ratio: number) => void;
+  /** 图片解码后回报自然宽高（全屏查看器据此算 1x 等比缩放尺寸） */
+  onNatural?: (width: number, height: number) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
-  // onRatio 每次渲染都是新函数；用 ref 存住，供挂载补检使用
+  // onRatio/onNatural 每次渲染都是新函数；用 ref 存住，供挂载补检使用
   const ratioRef = useRef(onRatio);
+  const naturalRef = useRef(onNatural);
   useEffect(() => {
     ratioRef.current = onRatio;
-  }, [onRatio]);
+    naturalRef.current = onNatural;
+  }, [onRatio, onNatural]);
 
   // 水合竞态兜底：图片可能在本组件的 onLoad 挂上之前就已加载完成
   // （SSR 出来的 <img> 由浏览器先解码）。此时 onLoad 永不触发，
@@ -50,6 +55,7 @@ export function FadeInImage({
     if (img.naturalWidth > 0) {
       setLoaded(true);
       ratioRef.current?.(img.naturalWidth / img.naturalHeight);
+      naturalRef.current?.(img.naturalWidth, img.naturalHeight);
     } else if (img.currentSrc || img.src) {
       setFailed(true);
     }
@@ -75,8 +81,9 @@ export function FadeInImage({
       onLoad={(e) => {
         setLoaded(true);
         const img = e.currentTarget;
-        if (onRatio && img.naturalWidth > 0 && img.naturalHeight > 0) {
-          onRatio(img.naturalWidth / img.naturalHeight);
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          onRatio?.(img.naturalWidth / img.naturalHeight);
+          naturalRef.current?.(img.naturalWidth, img.naturalHeight);
         }
       }}
       onError={() => setFailed(true)}

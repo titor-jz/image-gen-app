@@ -1,5 +1,5 @@
 /**
- * 结果图片动作（下载 / 保存到相册）——桌面 ResultGrid 与移动全屏预览共用
+ * 结果图片动作（下载 / 保存到相册）——图库卡片（ResultGrid/ResultCard）与图片查看器（ImageViewer）共用
  *
  * 从 ResultGrid 抽出（纯搬移）。
  * - 浏览器/PWA：`<a download>` 触发下载到系统下载目录

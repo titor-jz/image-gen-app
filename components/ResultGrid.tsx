@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FolderDown } from "lucide-react";
+import { Download, FolderDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FadeInImage, ResultCard } from "@/components/ResultCard";
+import { ResultCard } from "@/components/ResultCard";
 import { isCapacitor } from "@/lib/capacitor-env";
 import { aspectOf } from "@/lib/aspect";
 import { buildResultRenderItems } from "@/lib/result-groups";
@@ -21,17 +21,15 @@ interface ResultGridProps {
   /** 是否有任务在跑（仅用于空态时显示"生成中…"） */
   hasRunning?: boolean;
   /**
-   * 点图的处理。触屏上传入本回调走全屏预览（可左右滑、Capacitor 内直接存相册）；
-   * 不传则用内置的展开预览（桌面）。
+   * 点图的处理：交给 Grid 之外的窗口级查看器（ImageViewer）。
+   * 网格自己不再就地展开——下方突然长出一大块会把图库顶走。
    */
-  onPreviewRequest?: (index: number) => void;
+  onPreviewRequest: (index: number) => void;
   /** 从图库移除某一项；不传则结果卡上不显示叉号 */
   onRemove?: (result: GenerateResult) => void;
 }
 
 export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: ResultGridProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-  const [zoom, setZoom] = useState(1);
   // 仅 Capacitor 壳内显示「保存到相册」（effect 后置检测，避免 hydration 不一致）
   const [canSaveToGallery, setCanSaveToGallery] = useState(false);
 
@@ -46,6 +44,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
    */
   const getImageSrc = getResultImageSrc;
 
+  // 卡片上的单张动作（APP 内 a[download] 无处理器，改用原生保存到相册）
   const handleSaveToGallery = saveResultToGallery;
 
   const handleDownload = downloadResult;
@@ -72,19 +71,7 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
   // 按 compareGroup 聚合:同组两项并排成对比组,无组单独成项
   const renderItems = buildResultRenderItems(results);
 
-  const handleExpand = (i: number) => {
-    if (onPreviewRequest) {
-      onPreviewRequest(i);
-      return;
-    }
-    setExpandedIndex(expandedIndex === i ? null : i);
-    setZoom(1);
-  };
-
-  // 展开预览的对象：results 可能因为「历史回填 / 单张移除」而变短或整体换掉，
-  // 此时 expandedIndex 可能越界 —— 直接读 expanded.xxx 会抛错白屏，
-  // 所以统一走这个派生值，取不到就不渲染展开块。
-  const expanded = expandedIndex !== null ? results[expandedIndex] ?? null : null;
+  const handleExpand = (i: number) => onPreviewRequest(i);
 
   return (
     <div className="space-y-4">
@@ -187,130 +174,6 @@ export function ResultGrid({ results, hasRunning, onPreviewRequest, onRemove }: 
         );
       })()}
 
-      {/* 展开的完整预览 */}
-      {expanded && expandedIndex !== null && (
-        <div className="rounded-[3px] border border-border bg-card overflow-hidden animate-scale-in">
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b border-border">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-7 h-7 press transition-base hover:bg-accent/60"
-                onClick={() => {
-                  if (expandedIndex > 0) {
-                    setExpandedIndex(expandedIndex - 1);
-                    setZoom(1);
-                  }
-                }}
-                disabled={expandedIndex === 0}
-                aria-label="上一张"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <span className="inst-mono text-[12px] text-muted-foreground tabular-nums">
-                {String(expandedIndex + 1).padStart(2, "0")} / {String(results.length).padStart(2, "0")}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-7 h-7 press transition-base hover:bg-accent/60"
-                onClick={() => {
-                  if (expandedIndex < results.length - 1) {
-                    setExpandedIndex(expandedIndex + 1);
-                    setZoom(1);
-                  }
-                }}
-                disabled={expandedIndex === results.length - 1}
-                aria-label="下一张"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-              {/* 生成渠道信息：与结果卡/移动端全屏保持一致 */}
-              <span className="inst-mono ml-1 max-w-64 truncate text-[12px] text-muted-foreground">
-                {expanded.nodeName ? `${expanded.nodeName} · ` : ""}
-                {expanded.model}
-                {expanded.size && expanded.size !== "auto"
-                  ? ` · ${expanded.size}`
-                  : ""}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-[color:var(--inst-sunken)] rounded-[2px] p-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-7 h-7 press"
-                  onClick={() => setZoom((z) => Math.max(z - 0.25, 0.25))}
-                  aria-label="缩小"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </Button>
-                <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
-                  {Math.round(zoom * 100)}%
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-7 h-7 press"
-                  onClick={() => setZoom((z) => Math.min(z + 0.25, 3))}
-                  aria-label="放大"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </Button>
-              </div>
-
-              {/* 下载：仅浏览器/PWA（APP 环境 a[download] 无效，由「保存到相册」替代） */}
-              {!canSaveToGallery && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleDownload(expanded)}
-                  className="press"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  下载
-                </Button>
-              )}
-
-              {/* 保存到系统相册：仅 Capacitor 壳内显示 */}
-              {canSaveToGallery && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleSaveToGallery(expanded)}
-                  className="press"
-                >
-                  <FolderDown className="w-4 h-4 mr-2" />
-                  保存到相册
-                </Button>
-              )}
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-7 h-7 press transition-base hover:bg-accent/60"
-                onClick={() => setExpandedIndex(null)}
-                aria-label="关闭"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-center p-2 sm:p-4 overflow-auto max-h-[70dvh]">
-            <FadeInImage
-              src={getImageSrc(expanded)}
-              alt={expanded.prompt}
-              className="transition-slow"
-              style={{
-                transform: `scale(${zoom})`,
-                transformOrigin: "center center",
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

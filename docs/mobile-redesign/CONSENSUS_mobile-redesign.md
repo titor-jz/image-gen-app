@@ -22,3 +22,9 @@
 
 - 不引入新依赖（BottomSheet 自绘）；SettingsDialog 保持原样；不改服务端。
 - 桌面渲染路径与组件不被替换（新结构仅 <640px 分支）。
+
+## 后续变更（2026-11-20，用户明确要求，覆盖上文 5/6/7 与末条约束）
+
+- 点图不再在网格下方就地展开：桌面与手机统一由窗口级查看器 `components/ImageViewer.tsx`（portal 到 `document.body`）接管，旧的 `components/mobile/FullscreenPreview.tsx` 与 `hooks/useIsMobile.ts` 已删除。
+- 图库改为「最新在前」：新图前插，历史回填同样反转成生成时的显示顺序。
+- 因此上文「≥640px 桌面结构与行为零变化」「桌面仍用行内展开」不再是当前约束，仅作为当时决策的记录。
